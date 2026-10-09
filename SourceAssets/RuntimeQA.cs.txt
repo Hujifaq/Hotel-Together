@@ -1,0 +1,25 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Reflection;
+using System.Threading.Tasks;
+using UnityEngine;
+using HotelTogether;
+public static class RuntimeQA {
+ public static async Task<string> Main(){
+ var p=UnityEngine.Object.FindFirstObjectByType<HotelPlayer>();var items=UnityEngine.Object.FindObjectsByType<HotelItem>(FindObjectsSortMode.None);var results=new List<string>();
+ Action<string,bool> check=(name,ok)=>{results.Add((ok?"PASS ":"FAIL ")+name);};
+ Action<string,object[]> call=(name,args)=>typeof(HotelPlayer).GetMethod(name,BindingFlags.Instance|BindingFlags.NonPublic).Invoke(p,args);
+ Action<Vector3> pose=pos=>{var cc=p.GetComponent<CharacterController>();cc.enabled=false;p.transform.position=pos;cc.enabled=true;Physics.SyncTransforms();};
+ p.ResetWorld();await Task.Delay(500);check("Floor keeps player grounded",Mathf.Abs(p.transform.position.y-.025f)<.1f);
+ var item=items.First(i=>i.name=="Prop_0045");pose(item.transform.position+new Vector3(0,0,1.5f));var before=item.transform.position;call("PickUp",new object[]{item});await Task.Delay(500);check("Pickup attaches physical object",p.held==item&&item.GetComponent<FixedJoint>()!=null&&!item.GetComponent<Rigidbody>().isKinematic);p.Drop(true);await Task.Delay(150);check("Throw releases joint and moves item",p.held==null&&item.GetComponent<FixedJoint>()==null&&item.GetComponent<Rigidbody>().linearVelocity.magnitude>1);p.ResetWorld();await Task.Delay(200);
+ var cart=items.First(i=>i.name=="Prop_0043");item.transform.position+=Vector3.back*2;Physics.SyncTransforms();pose(new Vector3(cart.transform.position.x,.025f,cart.transform.position.z+1.2f));p.transform.rotation=Quaternion.Euler(0,180,0);call("BeginCart",new object[]{cart});await Task.Delay(200);check("Cart locks in front",p.cart==cart&&cart.GetComponent<Rigidbody>().isKinematic&&Vector2.Distance(new Vector2(p.transform.position.x,p.transform.position.z),new Vector2(cart.transform.position.x,cart.transform.position.z))<1.3f);
+ if(p.cart){var prior=cart.transform.position;pose(p.transform.position+Vector3.back*.4f);await Task.Delay(150);check("Cart follows player",Vector3.Distance(prior,cart.transform.position)>.25f);check("Cart sweep rejects route through walls",!(bool)typeof(HotelPlayer).GetMethod("ClearCart",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(p,new object[]{new Vector3(30,.025f,3.8f),180f}));check("Two visible cart grip hands",GameObject.Find("Cart grip hands").transform.childCount==2&&GameObject.Find("Cart grip hands").activeSelf);p.EndCart();check("Cart releases back to physics",!cart.GetComponent<Rigidbody>().isKinematic);}
+ p.ResetWorld();await Task.Delay(200);var seat=items.First(i=>i.kind=="seat");call("Sit",new object[]{seat});check("Sitting disables walking",p.seated==seat&&!p.GetComponent<CharacterController>().enabled);call("Stand",Array.Empty<object>());check("Standing restores walking",p.seated==null&&p.GetComponent<CharacterController>().enabled);
+ var lamp=items.First(i=>i.kind=="lamp");typeof(HotelPlayer).GetField("focused",BindingFlags.Instance|BindingFlags.NonPublic).SetValue(p,lamp);var on=lamp.lamp.enabled;call("Use",Array.Empty<object>());check("Lamp toggles light",lamp.lamp.enabled!=on);
+ var bell=items.First(i=>i.kind=="bell");typeof(HotelPlayer).GetField("focused",BindingFlags.Instance|BindingFlags.NonPublic).SetValue(p,bell);var n=p.bellCount;call("Use",Array.Empty<object>());check("Bell plays on interaction",p.bellCount==n+1);
+ var door=items.First(i=>i.kind=="door");var closed=door.leaves[0].position;door.open=true;await Task.Delay(1200);check("Door opens with moving leaf",Vector3.Distance(closed,door.leaves[0].position)>.15f);door.open=false;await Task.Delay(1200);check("Door closes to initial position",Vector3.Distance(closed,door.leaves[0].position)<.03f);
+ p.ResetWorld();await Task.Delay(200);p.GetComponent<CharacterController>().Move(Vector3.right*30);check("Walking is blocked by architecture",p.transform.position.x<27);p.ResetWorld();await Task.Delay(200);check("Reset restores player and held state",p.held==null&&p.cart==null&&Vector3.Distance(p.transform.position,new Vector3(0,.025f,5.8f))<.15f);
+ var report=string.Join("\n",results);System.IO.File.WriteAllText("../HotelTogether-Unity-QA.txt",report);return report;
+ }
+}
