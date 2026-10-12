@@ -6,6 +6,7 @@ namespace HotelTogether
     {
         public Transform[] slots;
         readonly List<HotelGuestSupply> loaded=new();
+        public IReadOnlyList<HotelGuestSupply> Contents => loaded;
         public int Count { get {loaded.RemoveAll(s=>!s);return loaded.Count;} }
         void UpdateName(){GetComponent<HotelItem>().displayName="Service tray / "+Count+" of "+slots.Length;}
         public bool Load(HotelGuestSupply supply,HotelPlayer player)
@@ -16,11 +17,11 @@ namespace HotelTogether
             foreach(var c in supply.GetComponentsInChildren<Collider>())c.enabled=false;
             var item=supply.GetComponent<HotelItem>();item.enabled=false;
             supply.transform.SetParent(slots[Count],false);supply.transform.localPosition=Vector3.zero;supply.transform.localRotation=Quaternion.identity;loaded.Add(supply);
-            UpdateName();player.Notify("Tray "+Count+" / 3. E at a guest to serve.");return true;
+            UpdateName();player.Notify("Loaded "+supply.Label+". Tray "+Count+"/3; E at the matching guest.");return true;
         }
-        public bool Serve(GuestNeed need)
+        public bool Serve(GuestNeed need, MealDish dish = MealDish.ChickenRice)
         {
-            loaded.RemoveAll(s=>!s);var supply=loaded.Find(s=>s.type==need);if(!supply)return false;
+            loaded.RemoveAll(s=>!s);var supply=loaded.Find(s=>s.type==need&&(need!=GuestNeed.Meal||s.dish==dish));if(!supply)return false;
             loaded.Remove(supply);Destroy(supply.gameObject);for(int i=0;i<loaded.Count;i++){loaded[i].transform.SetParent(slots[i],false);loaded[i].transform.localPosition=Vector3.zero;loaded[i].transform.localRotation=Quaternion.identity;}UpdateName();return true;
         }
         public void ResetTray(){foreach(var supply in loaded)if(supply)Destroy(supply.gameObject);loaded.Clear();UpdateName();}

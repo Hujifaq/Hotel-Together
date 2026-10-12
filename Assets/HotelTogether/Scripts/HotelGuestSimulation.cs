@@ -102,6 +102,7 @@ namespace HotelTogether
                 var entrance=door.GetComponent<HotelAutomaticEntrance>();if(entrance)entrance.RequestOpen();else door.open=true;
             }
         }
+        public void RecordHousekeeping(int tip){Services++;Tips+=tip;}
         public void RecordService(HotelGuestBot guest,int baseTip){Services++;Tips+=Mathf.RoundToInt(baseTip*Mathf.Lerp(.3f,1,guest.Satisfaction));}
         void Restock()
         {
@@ -109,15 +110,15 @@ namespace HotelTogether
             foreach(var station in stations)
             {
                 if(!station.point||!station.prefab||supplies.Count>=36)continue;
-                if(station.current&&Vector3.Distance(station.current.transform.position,station.point.position)<.45f)continue;
+                if(station.current&&station.current.enabled&&player.held!=station.current&&Vector3.Distance(station.current.transform.position,station.point.position)<.45f)continue;
                 var item=Instantiate(station.prefab,station.point.position,station.point.rotation,transform);station.current=item;supplies.Add(item.GetComponent<HotelGuestSupply>());
             }
         }
         public void ShowMeal(HotelGuestBot guest,bool show)
         {
-            if(meals.TryGetValue(guest,out var old)){if(old)Destroy(old);meals.Remove(guest);}
+            if(meals.TryGetValue(guest,out var old)){if(old){if(!show&&serviceJobs&&serviceJobs.housekeeping)serviceJobs.housekeeping.SpawnMess(FloorMessType.Litter,guest.transform.position+guest.transform.right*.65f);Destroy(old);}meals.Remove(guest);}
             if(!show||guest.SeatIndex<0)return;
-            var seat=seats[guest.SeatIndex];var mealStation=Array.Find(stations,s=>s.prefab&&s.prefab.GetComponent<HotelGuestSupply>().type==GuestNeed.Meal);
+            var seat=seats[guest.SeatIndex];var mealStation=Array.Find(stations,s=>s.prefab&&s.prefab.GetComponent<HotelGuestSupply>().type==GuestNeed.Meal&&s.prefab.GetComponent<HotelGuestSupply>().dish==guest.RequestedDish);
             if(mealStation==null)return;
             Vector3 position=seat.table?seat.table.position+Vector3.up*.44f:guest.transform.position+guest.transform.forward*.4f+Vector3.up*.82f;
             var model=Instantiate(mealStation.prefab.gameObject,position,Quaternion.identity,transform);foreach(var c in model.GetComponentsInChildren<Collider>())Destroy(c);Destroy(model.GetComponent<Rigidbody>());Destroy(model.GetComponent<HotelGuestSupply>());Destroy(model.GetComponent<HotelItem>());meals[guest]=model;

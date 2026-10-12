@@ -14,6 +14,10 @@ namespace HotelTogether
         readonly List<HotelGuestDelivery> loaded=new();
         public IReadOnlyList<HotelGuestDelivery> Loaded=>loaded;
         public int Count { get {loaded.RemoveAll(b=>!b);return loaded.Count;} }
+        public string RouteSummary
+        {
+            get { var result=new System.Text.StringBuilder();foreach(var bag in loaded)if(bag&&bag.Owner){if(result.Length>0)result.Append("\n");result.Append("ROOM ").Append(bag.Owner.RoomLabel).Append("  /  ").Append(bag.Owner.guestName);}return result.Length>0?result.ToString():"No luggage loaded"; }
+        }
         public bool Load(HotelPlayer player)
         {
             var bag=player.held?player.held.GetComponent<HotelGuestDelivery>():null;
@@ -22,7 +26,7 @@ namespace HotelTogether
             player.Drop();bag.Detach();loaded.Add(bag);bag.Trolley=this;
             var body=bag.GetComponent<Rigidbody>();body.linearVelocity=body.angularVelocity=Vector3.zero;body.isKinematic=true;
             foreach(var c in bag.GetComponentsInChildren<Collider>())c.enabled=false;
-            Arrange();player.Notify("Loaded "+bag.Label+". E push / G unload.");return true;
+            Arrange();player.Notify("Loaded for Room "+bag.Owner.RoomLabel+". Delivery route is on the HUD; take the lift to floor 2.");return true;
         }
         void Arrange(){for(int i=0;i<loaded.Count;i++){if(!loaded[i])continue;loaded[i].transform.SetParent(slots[i],false);loaded[i].transform.localPosition=Vector3.zero;loaded[i].transform.localRotation=Quaternion.identity;}}
         public void Detach(HotelGuestDelivery bag)

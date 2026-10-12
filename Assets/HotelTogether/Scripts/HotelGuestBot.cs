@@ -10,6 +10,7 @@ namespace HotelTogether
         public string guestName;
         public GuestActivity Activity { get; private set; }
         public GuestNeed Need { get; private set; }
+        public MealDish RequestedDish { get; private set; }
         public float Satisfaction { get; private set; }=1;
         public float WaitSeconds { get; private set; }
         public int RoomIndex { get; private set; }=-1;
@@ -31,7 +32,7 @@ namespace HotelTogether
         int waterSlot=-1;
         float normalStoppingDistance;
         public string RoomLabel=>CheckedIn?Hotel.rooms[RoomIndex].number.ToString():"--";
-        public string NeedLabel=>Need switch {GuestNeed.CheckIn=>"CHECK IN",GuestNeed.Meal=>"MEAL",GuestNeed.Water=>"WATER",GuestNeed.Towel=>"CLEAN TOWEL",GuestNeed.CheckOut=>"CHECK OUT",GuestNeed.Help=>"ROUTE HELP",GuestNeed.Shelter=>"NEED SAFE SHELTER",GuestNeed.Rescue=>"RESCUE ME",GuestNeed.Luggage=>"BRING MY LUGGAGE",_=>""};
+        public string NeedLabel=>Need switch {GuestNeed.CheckIn=>"CHECK IN",GuestNeed.Meal=>HotelGuestSupply.DishName(RequestedDish).ToUpperInvariant(),GuestNeed.Water=>"WATER",GuestNeed.Towel=>"CLEAN TOWEL",GuestNeed.CheckOut=>"CHECK OUT",GuestNeed.Help=>"ROUTE HELP",GuestNeed.Shelter=>"NEED SAFE SHELTER",GuestNeed.Rescue=>"RESCUE ME",GuestNeed.Luggage=>"BRING MY LUGGAGE",_=>""};
         public string ActionLabel=>Need==GuestNeed.Rescue?"RESCUE WITH MEDICINE":survival&&survival.IsTakingCover?"FOLLOW ME":Need switch {GuestNeed.CheckIn=>"CHECK IN",GuestNeed.CheckOut=>"CHECK OUT",GuestNeed.Help=>"RETRY ROUTE",GuestNeed.None=>"TALK",_=>"DELIVER "+NeedLabel};
         public void Initialize(HotelGuestSimulation hotel,string label)
         {
@@ -48,7 +49,7 @@ namespace HotelTogether
         public bool CheckIn(int room)
         {
             if(Need!=GuestNeed.CheckIn||Hotel.QueuePosition(this)!=0)return false;
-            RoomIndex=room;CheckInDay=Hotel.DayNumber;Need=GuestNeed.None;Hotel.LeaveQueue(this);
+            RoomIndex=room;RequestedDish=(MealDish)(room%2);CheckInDay=Hotel.DayNumber;Need=GuestNeed.None;Hotel.LeaveQueue(this);
             if(Hotel.serviceJobs)Hotel.serviceJobs.CheckIn(this);GoRoom();return true;
         }
         void GoRoom()
@@ -90,9 +91,9 @@ namespace HotelTogether
             if(Need==GuestNeed.Luggage){player.Notify("Bring the tagged suitcase to the delivery point outside Room "+RoomLabel+".");return false;}
             var supply=player.held?player.held.GetComponent<HotelGuestSupply>():null;
             var tray=player.held?player.held.GetComponent<HotelServiceTray>():null;
-            if(Need==GuestNeed.Meal&&Hotel.serviceJobs&&!tray){player.Notify("Serve meals on a service tray. Pick up a tray and E at the food station.");return false;}
-            if(tray){if(!tray.Serve(Need)){player.Notify("No "+NeedLabel+" on this tray. Load it at the SERVICE station.");return false;}}
-            else{if(!supply||supply.type!=Need){player.Notify(guestName+" needs "+NeedLabel+". Collect it from the SERVICE station.");return false;}var delivered=supply.gameObject;player.Drop();Destroy(delivered);}
+            if(Need==GuestNeed.Meal&&Hotel.serviceJobs&&!tray){player.Notify("Serve meals on a service tray. Pick up a tray at the Lobby GUEST SERVICE counter, then E on the requested plate.");return false;}
+            if(tray){if(!tray.Serve(Need,RequestedDish)){player.Notify("No "+NeedLabel+" on this tray. Get the matching plate at the Lobby GUEST SERVICE counter.");return false;}}
+            else{if(!supply||supply.type!=Need){player.Notify(guestName+" needs "+NeedLabel+". Collect it at the Lobby GUEST SERVICE counter.");return false;}var delivered=supply.gameObject;player.Drop();Destroy(delivered);}
             bool collectingWater=waterStation;CancelWater();if(Need==GuestNeed.Meal&&Hotel.serviceJobs)Hotel.serviceJobs.RecordMeal();Hotel.RecordService(this,8);Satisfaction=Mathf.Clamp01(Satisfaction+.18f);Need=GuestNeed.None;WaitSeconds=0;activityTime=0;
             if(Activity==GuestActivity.WaitingMeal){Activity=GuestActivity.Eating;Hotel.ShowMeal(this,true);}
             else if(Hotel.IsNight)Sleep();else if(collectingWater)GoLounge();else Activity=GuestActivity.Relaxing;
