@@ -1,0 +1,177 @@
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.AI;
+namespace HotelTogether
+{
+    public sealed class HotelGuestSimulation : MonoBehaviour
+    {
+        [Serializable] public sealed class GuestRoom { public int number;public HotelItem door;public Transform bed;public Vector3 standPoint; }
+        [Serializable] public sealed class GuestSeat { public bool dining;public Vector3 position,approach;public Quaternion rotation;public Transform table;public HotelItem chair; }
+        [Serializable] public sealed class SupplyStation { public HotelItem prefab;public Transform point;[NonSerialized]public HotelItem current; }
+        public HotelGuestBot[] guestPrefabs;
+        public GuestRoom[] rooms;
+        public GuestSeat[] seats;
+        public SupplyStation[] stations;
+        public Vector3 arrivalPoint=new Vector3(0,.025f,13);
+        public Vector3 receptionPoint=new Vector3(-5.65f,.025f,-3.6f);
+        public int maxGuests=6;
+        public float daySeconds=180,nightSeconds=180,arrivalInterval=26;
+        public Light sun;
+        public HotelPlayer player;
+        public HotelServiceJobs serviceJobs;
+        public IReadOnlyList<HotelGuestBot> Guests=>guests;
+        public bool Running=>enabled&&player&&Cursor.lockState==CursorLockMode.Locked;
+        public bool IsNight=>elapsed>=daySeconds;
+        public int DayNumber { get; private set; }=1;
+        public float PeriodRemaining=>Mathf.Max(0,(IsNight?daySeconds+nightSeconds:daySeconds)-elapsed);
+        public int Tips { get; private set; }
+        public int Services { get; private set; }
+        public float elapsed;
+        readonly List<HotelGuestBot> guests=new();
+        readonly List<HotelGuestBot> queue=new();
+        readonly List<HotelGuestSupply> supplies=new();
+        readonly Dictionary<int,HotelGuestBot> occupiedSeats=new();
+        readonly Dictionary<HotelGuestBot,GameObject> meals=new();
+        HotelItem[] doors;
+        float nextArrival=4,supplyTick,sunIntensity,ambientIntensity;
+        Quaternion sunRotation;
+        Color sunColor,ambientColor;
+        int guestSerial;
+        Renderer cityBackground;
+        float cityExposure=1,backgroundSearch;
+        MaterialPropertyBlock originalBackground,nightBackground;
+        Font font;GUIStyle small,title,request;Texture2D panel;
+        static readonly string[] Names={"Milo","Noah","Leo","Theo","Finn","Alex","Jamie","Robin","Sam","Riley","Luca","Avery"};
+        void Awake()
+        {
+            if(!player)player=FindFirstObjectByType<HotelPlayer>();
+            if(!serviceJobs)serviceJobs=GetComponent<HotelServiceJobs>();
+            doors=FindObjectsByType<HotelItem>(FindObjectsSortMode.None);
+            if(sun){sunIntensity=sun.intensity;sunRotation=sun.transform.rotation;sunColor=sun.color;}
+            ambientIntensity=RenderSettings.ambientIntensity;ambientColor=RenderSettings.ambientLight;
+        }
+        void Update()
+        {
+            if(!Running)return;
+            bool wasNight=IsNight;elapsed+=Time.deltaTime;
+            if(elapsed>=daySeconds+nightSeconds){elapsed-=daySeconds+nightSeconds;DayNumber++;}
+            if(wasNight!=IsNight){foreach(var guest in guests.ToArray())if(guest)guest.OnPeriodChanged();nextArrival=elapsed+7;}
+            if(!IsNight&&elapsed>=nextArrival)
+            {nextArrival=elapsed+arrivalInterval;if(guests.Count<maxGuests&&FindFreeRoom()>=0)SpawnGuest();}
+            if(Time.time>=supplyTick){Restock();supplyTick=Time.time+2;}
+            UpdateLighting();
+        }
+        public HotelGuestBot SpawnGuest()
+        {
+            if(guestPrefabs==null||guestPrefabs.Length==0||guests.Count>=maxGuests)return null;
+            var prefab=guestPrefabs[guestSerial%guestPrefabs.Length];var filter=new NavMeshQueryFilter{agentTypeID=prefab.GetComponent<NavMeshAgent>().agentTypeID,areaMask=NavMesh.AllAreas};
+            if(!NavMesh.SamplePosition(arrivalPoint,out var hit,2,filter)){Debug.LogWarning("No guest NavMesh at arrival point.",this);return null;}
+            var guest=Instantiate(prefab,hit.position,Quaternion.Euler(0,180,0),transform);
+            guests.Add(guest);guest.Initialize(this,Names[guestSerial%Names.Length]+" "+(guestSerial/Names.Length+1));guestSerial++;return guest;
+        }
+        public int QueuePosition(HotelGuestBot guest)=>queue.IndexOf(guest);
+        public Vector3 QueuePoint(int slot)=>receptionPoint+Vector3.right*slot*.9f;
+        public void JoinQueue(HotelGuestBot guest){if(!queue.Contains(guest))queue.Add(guest);}
+        public void LeaveQueue(HotelGuestBot guest){queue.Remove(guest);foreach(var g in queue)if(g)g.RepositionQueue();}
+        public int FindFreeRoom()
+        {
+            for(int i=0;i<rooms.Length;i++){bool occupied=false;foreach(var g in guests)if(g&&g.RoomIndex==i){occupied=true;break;}if(!occupied)return i;}return -1;
+        }
+        public int AcquireSeat(HotelGuestBot guest,bool dining)
+        {
+            for(int i=0;i<seats.Length;i++)if(seats[i].dining==dining&&!occupiedSeats.ContainsKey(i)&&(!player||player.seated!=seats[i].chair)){occupiedSeats[i]=guest;return i;}return -1;
+        }
+        public bool IsSeatOccupied(HotelItem chair){foreach(var entry in occupiedSeats)if(seats[entry.Key].chair==chair)return true;return false;}
+        public void ReleaseSeat(int index,HotelGuestBot guest){if(occupiedSeats.TryGetValue(index,out var owner)&&owner==guest)occupiedSeats.Remove(index);}
+        public void RemoveGuest(HotelGuestBot guest){Forget(guest);Destroy(guest.gameObject);}
+        public void Forget(HotelGuestBot guest)
+        {
+            if(serviceJobs)serviceJobs.Forget(guest);
+            guests.Remove(guest);LeaveQueue(guest);if(guest.SeatIndex>=0)ReleaseSeat(guest.SeatIndex,guest);ShowMeal(guest,false);
+        }
+        public void OpenNearbyDoors(Vector3 position)
+        {
+            foreach(var door in doors)
+            {
+                if(!door||door.kind!="door"||Mathf.Abs(door.transform.position.y-position.y)>2)continue;
+                var delta=door.transform.position-position;delta.y=0;if(delta.sqrMagnitude>9)continue;
+                var defense=door.GetComponent<HotelDefenseOpening>();if(defense&&(defense.BoardCount>0||IsNight))continue;
+                var entrance=door.GetComponent<HotelAutomaticEntrance>();if(entrance)entrance.RequestOpen();else door.open=true;
+            }
+        }
+        public void RecordService(HotelGuestBot guest,int baseTip){Services++;Tips+=Mathf.RoundToInt(baseTip*Mathf.Lerp(.3f,1,guest.Satisfaction));}
+        void Restock()
+        {
+            supplies.RemoveAll(s=>!s);
+            foreach(var station in stations)
+            {
+                if(!station.point||!station.prefab||supplies.Count>=36)continue;
+                if(station.current&&Vector3.Distance(station.current.transform.position,station.point.position)<.45f)continue;
+                var item=Instantiate(station.prefab,station.point.position,station.point.rotation,transform);station.current=item;supplies.Add(item.GetComponent<HotelGuestSupply>());
+            }
+        }
+        public void ShowMeal(HotelGuestBot guest,bool show)
+        {
+            if(meals.TryGetValue(guest,out var old)){if(old)Destroy(old);meals.Remove(guest);}
+            if(!show||guest.SeatIndex<0)return;
+            var seat=seats[guest.SeatIndex];var mealStation=Array.Find(stations,s=>s.prefab&&s.prefab.GetComponent<HotelGuestSupply>().type==GuestNeed.Meal);
+            if(mealStation==null)return;
+            Vector3 position=seat.table?seat.table.position+Vector3.up*.44f:guest.transform.position+guest.transform.forward*.4f+Vector3.up*.82f;
+            var model=Instantiate(mealStation.prefab.gameObject,position,Quaternion.identity,transform);foreach(var c in model.GetComponentsInChildren<Collider>())Destroy(c);Destroy(model.GetComponent<Rigidbody>());Destroy(model.GetComponent<HotelGuestSupply>());Destroy(model.GetComponent<HotelItem>());meals[guest]=model;
+        }
+        public void ResetSimulation()
+        {
+            if(serviceJobs)serviceJobs.ResetJobs();
+            foreach(var guest in guests.ToArray())if(guest)Destroy(guest.gameObject);guests.Clear();queue.Clear();occupiedSeats.Clear();
+            foreach(var supply in supplies)if(supply)Destroy(supply.gameObject);supplies.Clear();foreach(var meal in meals.Values)if(meal)Destroy(meal);meals.Clear();
+            foreach(var s in stations)s.current=null;elapsed=0;DayNumber=1;Tips=Services=guestSerial=0;nextArrival=4;Restock();UpdateLighting();
+        }
+        void UpdateLighting()
+        {
+            float transition=IsNight?Mathf.SmoothStep(0,1,Mathf.Clamp01((elapsed-daySeconds)/8)):1-Mathf.SmoothStep(0,1,Mathf.Clamp01(elapsed/8));
+            if(DayNumber==1&&!IsNight)transition=0;
+            if(sun){sun.intensity=Mathf.Lerp(sunIntensity,.18f,transition);sun.color=Color.Lerp(sunColor,new Color(.40f,.52f,.82f),transition);sun.transform.rotation=Quaternion.Slerp(sunRotation,Quaternion.Euler(35,-40,0),transition);}
+            RenderSettings.ambientIntensity=Mathf.Lerp(ambientIntensity,.35f,transition);RenderSettings.ambientLight=Color.Lerp(ambientColor,new Color(.12f,.17f,.28f),transition);
+            if(!cityBackground&&Time.time>=backgroundSearch)
+            {
+                backgroundSearch=Time.time+2;
+                // The panorama is a DontSave child and is intentionally omitted by scene-wide FindObjects calls.
+                foreach(var atmosphere in FindObjectsByType<HotelCityAtmosphere>(FindObjectsSortMode.None))
+                foreach(var renderer in atmosphere.GetComponentsInChildren<MeshRenderer>(true))
+                    if(renderer.sharedMaterial&&renderer.sharedMaterial.shader.name=="HotelTogether/City Skydome")
+                    {cityBackground=renderer;cityExposure=renderer.sharedMaterial.GetFloat("_Exposure");originalBackground=new MaterialPropertyBlock();renderer.GetPropertyBlock(originalBackground);nightBackground=new MaterialPropertyBlock();renderer.GetPropertyBlock(nightBackground);break;}
+            }
+            if(cityBackground){nightBackground.SetFloat("_Exposure",Mathf.Lerp(cityExposure,.07f,transition));cityBackground.SetPropertyBlock(nightBackground);}
+        }
+        void PrepareGui()
+        {
+            if(panel)return;font=Resources.Load<Font>("HotelTogetherUI/LilitaOne-Regular");panel=new Texture2D(1,1);panel.SetPixel(0,0,new Color(.06f,.13f,.18f,.90f));panel.Apply();
+            small=new GUIStyle{font=font,fontSize=17,normal={textColor=new Color(.9f,.94f,.98f)}};
+            title=new GUIStyle(small){fontSize=24};request=new GUIStyle(small){fontSize=18,alignment=TextAnchor.MiddleCenter,normal={textColor=new Color(1,.80f,.33f)}};
+        }
+        void OnGUI()
+        {
+            if(!Running)return;PrepareGui();var previous=GUI.color;var matrix=GUI.matrix;float scale=Mathf.Clamp(Mathf.Min(Screen.width/1200f,Screen.height/700f),.45f,2);GUI.matrix=Matrix4x4.TRS(Vector3.zero,Quaternion.identity,Vector3.one*scale);
+            GUI.DrawTexture(new Rect(18,18,275,91),panel);GUI.Label(new Rect(32,26,250,28),"DAY "+DayNumber+"  /  "+(IsNight?"NIGHT":"DAYTIME"),title);
+            int seconds=Mathf.CeilToInt(PeriodRemaining);GUI.Label(new Rect(32,57,245,24),$"{seconds/60:00}:{seconds%60:00}   Guests {guests.Count}/{maxGuests}",small);GUI.Label(new Rect(32,80,245,22),"Services "+Services+"    Tips $"+Tips,small);
+            float x=Screen.width/scale-335;if(serviceJobs){serviceJobs.DrawBoard(x,panel,title,small);GUI.color=previous;GUI.matrix=matrix;return;}GUI.DrawTexture(new Rect(x,18,317,55+guests.Count*58),panel);GUI.Label(new Rect(x+14,27,290,30),"GUEST SERVICE",title);
+            for(int i=0;i<guests.Count;i++)
+            {
+                var guest=guests[i];if(!guest)continue;float y=65+i*58;GUI.Label(new Rect(x+14,y,290,22),guest.guestName+"   Room "+guest.RoomLabel+"   "+Mathf.RoundToInt(guest.Satisfaction*100)+"%",small);
+                GUI.color=guest.Need!=GuestNeed.None?new Color(1,.80f,.33f):new Color(.67f,.88f,.78f);GUI.Label(new Rect(x+14,y+22,290,24),guest.Need!=GuestNeed.None?guest.NeedLabel+"  "+Mathf.CeilToInt(guest.WaitSeconds)+"s":guest.StatusLabel,small);GUI.color=previous;
+                if(guest.Need!=GuestNeed.None&&player.view)
+                {
+                    var point=player.view.WorldToScreenPoint(guest.transform.position+Vector3.up*2.1f);if(point.z>0&&Vector3.Distance(player.transform.position,guest.transform.position)<22)
+                    {var rect=new Rect(point.x/scale-85,(Screen.height-point.y)/scale-13,170,27);GUI.DrawTexture(rect,panel);GUI.Label(rect,guest.NeedLabel,request);}
+                }
+            }
+            GUI.color=previous;GUI.matrix=matrix;
+        }
+        void OnDestroy()
+        {
+            if(panel)Destroy(panel);if(sun){sun.intensity=sunIntensity;sun.color=sunColor;sun.transform.rotation=sunRotation;}RenderSettings.ambientIntensity=ambientIntensity;RenderSettings.ambientLight=ambientColor;
+            if(cityBackground)cityBackground.SetPropertyBlock(originalBackground);
+        }
+    }
+}

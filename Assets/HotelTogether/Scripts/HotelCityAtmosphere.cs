@@ -136,25 +136,27 @@ namespace HotelTogether
             var sphere=GardenSphere();var temp=GameObject.CreatePrimitive(PrimitiveType.Cylinder);var cylinder=temp.GetComponent<MeshFilter>().sharedMesh;DestroyImmediate(temp);
             temp=GameObject.CreatePrimitive(PrimitiveType.Cube);var cube=temp.GetComponent<MeshFilter>().sharedMesh;DestroyImmediate(temp);
             var pieces=new List<CombineInstance>[6];for(int i=0;i<pieces.Length;i++)pieces[i]=new List<CombineInstance>();
+            bool parkingCourt=false;foreach(var sceneRoot in gameObject.scene.GetRootGameObjects()) if(sceneRoot.name=="Hotel front parking and arrival court") {parkingCourt=true;break;}
             var colors=new[]{new Color(.40f,.55f,.30f),new Color(.43f,.28f,.14f),new Color(.25f,.44f,.25f),new Color(.39f,.57f,.29f),new Color(.53f,.65f,.34f),new Color(.72f,.67f,.53f)};
             var shader=windowGlass?windowGlass.shader:Shader.Find("Universal Render Pipeline/Lit");
             AddGardenPiece(pieces[0],cube,new Vector3(1,-.25f,-13),new Vector3(660,.22f,660));
-            AddGardenPiece(pieces[5],cube,new Vector3(1,-.10f,25),new Vector3(6,.08f,34));
+            if(!parkingCourt) AddGardenPiece(pieces[5],cube,new Vector3(1,-.10f,25),new Vector3(6,.08f,34));
             var random=new System.Random(1847);
             for(int i=0;i<68;i++)
             {
                 float angle=i*Mathf.PI*2/68;
                 var position=new Vector3(1+Mathf.Cos(angle)*(69+(float)random.NextDouble()*8),0,-13+Mathf.Sin(angle)*(70+(float)random.NextDouble()*8));
+                if(parkingCourt && Mathf.Abs(position.x-1)<8 && position.z>30)continue;
                 GardenTree(pieces,sphere,cylinder,position,1+(float)random.NextDouble()*.45f,i);
             }
             for(int i=-6;i<=6;i++)
             {
-                if(i==0)continue;
+                if(i==0 || (parkingCourt && Mathf.Abs(1+i*10)<35))continue;
                 GardenTree(pieces,sphere,cylinder,new Vector3(1+i*10,0,29+Mathf.Abs(i)*1.4f),.90f+(float)random.NextDouble()*.22f,i+12);
             }
             for(int i=-25;i<=25;i++)
             {
-                if(Mathf.Abs(i)<2)continue;
+                if(Mathf.Abs(i)<2 || (parkingCourt && Mathf.Abs(1+i*2.8f)<35))continue;
                 AddGardenPiece(pieces[2+(i+25)%3],sphere,new Vector3(1+i*2.8f,.60f,18+Mathf.Abs(i)*.10f),new Vector3(1.9f,1.2f,1.65f));
             }
             for(int i=0;i<pieces.Length;i++)
@@ -237,7 +239,3 @@ namespace HotelTogether
         static void Release(UnityEngine.Object value) { if(!value)return;if(Application.isPlaying)Destroy(value);else DestroyImmediate(value); }
     }
 }
-
-
-
-

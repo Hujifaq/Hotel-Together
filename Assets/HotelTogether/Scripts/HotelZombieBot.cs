@@ -1,0 +1,86 @@
+using UnityEngine;
+using UnityEngine.AI;
+namespace HotelTogether
+{
+    [DefaultExecutionOrder(10)]
+    [RequireComponent(typeof(NavMeshAgent))]
+    public sealed class HotelZombieBot : MonoBehaviour
+    {
+        public HotelGuestVisual visual;
+        public float Health {get;private set;}
+        public bool Alive=>Health>0;
+        public HotelHuman Target {get;private set;}
+        public string State {get;private set;}="Approaching";
+        public NavMeshAgent Agent {get;private set;}
+        HotelZombieDirector director;HotelDefenseOpening entry,assault;
+        bool inside,assaultFromInside;float think,attackTime,stunned,animationTime;Vector3 lastPosition;
+        public void Initialize(HotelZombieDirector owner,float health)
+        {director=owner;Health=health;Agent=GetComponent<NavMeshAgent>();Agent.speed=1.1f+Mathf.Min(.45f,(owner.hotel.DayNumber-1)*.045f);lastPosition=transform.position;}
+        public void Damage(float amount,Vector3 direction)
+        {
+            if(!Alive||!director||!director.Running)return;Health=Mathf.Max(0,Health-amount);stunned=Time.time+.30f;
+            if(Agent.isOnNavMesh){Agent.isStopped=true;var filter=new NavMeshQueryFilter{agentTypeID=Agent.agentTypeID,areaMask=Agent.areaMask};if(NavMesh.SamplePosition(transform.position+direction.normalized*.18f,out var hit,.4f,filter))Agent.Warp(hit.position);}
+            if(!Alive){Agent.enabled=false;foreach(var collider in GetComponents<Collider>())collider.enabled=false;visual.transform.localPosition=Vector3.down*.3f;visual.transform.localRotation=Quaternion.Euler(0,0,85);State="Defeated";director.Kill(this);Destroy(gameObject,4);}
+        }
+        void Update()
+        {
+            if(!director||!Alive||!Agent.enabled||!Agent.isOnNavMesh)return;
+            if(!director.Running||!director.IsNight||Time.time<stunned){Agent.isStopped=true;return;}
+            Agent.isStopped=false;if(Time.time>=think){think=Time.time+.45f;Think();}
+            if(TryAttackHuman())return;
+            if(assault)
+            {
+                if(!assault.Blocks){assault=null;think=0;return;}
+                if(Vector3.Distance(transform.position,assaultFromInside?assault.insidePoint:assault.outsidePoint)<.45f)
+                {Agent.isStopped=true;State="Breaking in";Face(assault.transform.position);if(Time.time>=attackTime){attackTime=Time.time+1.1f;assault.TakeAttack(16+Mathf.Min(12,director.hotel.DayNumber-1));}}
+                return;
+            }
+        }
+        bool TryAttackHuman()
+        {
+            if(Target&&Target.Targetable)
+            {
+                var delta=Target.transform.position-transform.position;
+                if(new Vector2(delta.x,delta.z).magnitude<1.4f&&Mathf.Abs(delta.y)<1.8f)
+                {
+                    Face(Target.transform.position);
+                    var origin=transform.position+Vector3.up*1.1f;var end=Target.transform.position+Vector3.up*1.1f;
+                    bool clear=!Physics.Linecast(origin,end,out var hit,~((1<<8)|(1<<9)),QueryTriggerInteraction.Ignore)||hit.collider.GetComponentInParent<HotelHuman>()==Target;
+                    if(clear){Agent.isStopped=true;State="Attacking";if(Time.time>=attackTime){attackTime=Time.time+1.2f;Target.Damage(12+Mathf.Min(12,director.hotel.DayNumber-1),transform.position);}return true;}
+                }
+            }
+            return false;
+        }
+        void Think()
+        {
+            Target=director.NearestHuman(transform.position);if(!Target){Agent.isStopped=true;State="Searching";return;}
+            bool targetOutside=Target.transform.position.y<2&&(Target.transform.position.z>7.2f||Target.transform.position.z< -33.2f||Target.transform.position.x< -27.2f||Target.transform.position.x>29.2f);
+            if(targetOutside)
+            {
+                var query=new NavMeshQueryFilter{agentTypeID=Agent.agentTypeID,areaMask=Agent.areaMask};var direct=new NavMeshPath();
+                if(NavMesh.SamplePosition(Target.transform.position,out var surface,1.5f,query)&&Agent.CalculatePath(surface.position,direct)&&direct.status==NavMeshPathStatus.PathComplete){assault=null;Agent.SetPath(direct);State="Hunting humans outside";return;}
+            }
+            if(!inside)
+            {
+                if(!entry)entry=director.ChooseOpening(Agent,Target,true);
+                if(!entry){State="Searching for an entrance";return;}
+                if(Vector3.Dot(transform.position-entry.transform.position,(entry.outsidePoint-entry.insidePoint).normalized)<-.5f)inside=true;
+                else {assaultFromInside=false;assault=entry.Blocks?entry:null;Agent.SetDestination(assault?entry.outsidePoint:entry.insidePoint);State=assault?"Approaching opening":"Entering breach";return;}
+            }
+            Vector3 goal=Target.transform.position;
+            if(Target.Guest&&Target.Guest.CheckedIn&&Target.Guest.Activity==GuestActivity.Sleeping)goal=Target.Guest.Hotel.rooms[Target.Guest.RoomIndex].standPoint;
+            var filter=new NavMeshQueryFilter{agentTypeID=Agent.agentTypeID,areaMask=Agent.areaMask};var path=new NavMeshPath();
+            if(NavMesh.SamplePosition(goal,out var hit,1.5f,filter)&&Agent.CalculatePath(hit.position,path)&&path.status==NavMeshPathStatus.PathComplete){assault=null;Agent.SetPath(path);State="Hunting humans";}
+            else{assaultFromInside=targetOutside;assault=director.ChooseOpening(Agent,Target,targetOutside,targetOutside);if(assault){Agent.SetDestination(assaultFromInside?assault.insidePoint:assault.outsidePoint);State="Approaching shelter door";}else State="Searching";}
+        }
+        void Face(Vector3 point){var direction=point-transform.position;direction.y=0;if(direction.sqrMagnitude>.01f)transform.rotation=Quaternion.LookRotation(direction);}
+        void LateUpdate()
+        {
+            if(!director||!visual||!Alive)return;float dt=director.Running?Time.deltaTime:0;animationTime+=dt;var delta=transform.position-lastPosition;lastPosition=transform.position;float speed=delta.sqrMagnitude>1?0:delta.magnitude/Mathf.Max(.001f,Time.deltaTime);
+            visual.Pose(director.Running?speed:0,dt,false,false,false,.4f,false);float reach=State=="Breaking in"||State=="Attacking"?Mathf.Sin(animationTime*6)*18:Mathf.Sin(animationTime*2)*5;
+            visual.leftArm.localRotation=Quaternion.Euler(-68+reach,0,15);visual.rightArm.localRotation=Quaternion.Euler(-73-reach,0,-15);visual.leftForearm.localRotation=Quaternion.Euler(-18,0,0);visual.rightForearm.localRotation=Quaternion.Euler(-22,0,0);visual.head.localRotation=Quaternion.Euler(8,0,Mathf.Sin(animationTime)*6);
+        }
+        void OnCollisionEnter(Collision collision)
+        {var rb=collision.rigidbody;if(!rb||rb.gameObject.layer==9||!rb.GetComponent<HotelWeapon>()||collision.relativeVelocity.magnitude<3)return;Damage(Mathf.Min(35,collision.relativeVelocity.magnitude*4),(transform.position-collision.transform.position).normalized);}
+    }
+}

@@ -50,7 +50,7 @@ namespace HotelTogether
    int height=Mathf.Max(128,Mathf.RoundToInt(width/(source.aspect>0?source.aspect:1.6f)));
    if(!reflection || reflection.width!=width || reflection.height!=height)
    {
-    Release(reflection);reflection=new RenderTexture(width,height,24,RenderTextureFormat.DefaultHDR){name="Lobby floor reflection",hideFlags=HideFlags.HideAndDontSave,useMipMap=true,autoGenerateMips=true,filterMode=FilterMode.Trilinear};reflection.Create();
+    Release(reflection);reflection=new RenderTexture(width,height,24,RenderTextureFormat.DefaultHDR){name="Lobby floor reflection",hideFlags=HideFlags.HideAndDontSave,useMipMap=true,autoGenerateMips=false,filterMode=FilterMode.Trilinear};reflection.Create();
    }
    reflectionCamera.CopyFrom(source);reflectionCamera.enabled=false;reflectionCamera.cameraType=CameraType.Reflection;reflectionCamera.targetTexture=reflection;reflectionCamera.allowMSAA=false;reflectionCamera.useOcclusionCulling=false;
    var data=reflectionCamera.GetUniversalAdditionalCameraData();data.renderType=CameraRenderType.Base;data.renderPostProcessing=false;data.renderShadows=true;data.requiresColorOption=CameraOverrideOption.Off;data.requiresDepthOption=CameraOverrideOption.Off;data.antialiasing=AntialiasingMode.None;
