@@ -20,6 +20,8 @@ namespace HotelTogether
         public Light sun;
         public HotelPlayer player;
         public HotelServiceJobs serviceJobs;
+        public HotelGuestWaterStation waterStation;
+        public HotelElevator[] elevators;
         public IReadOnlyList<HotelGuestBot> Guests=>guests;
         public bool Running=>enabled&&player&&Cursor.lockState==CursorLockMode.Locked;
         public bool IsNight=>elapsed>=daySeconds;
@@ -122,6 +124,7 @@ namespace HotelTogether
         }
         public void ResetSimulation()
         {
+            if(waterStation)waterStation.ResetStation();
             if(serviceJobs)serviceJobs.ResetJobs();
             foreach(var guest in guests.ToArray())if(guest)Destroy(guest.gameObject);guests.Clear();queue.Clear();occupiedSeats.Clear();
             foreach(var supply in supplies)if(supply)Destroy(supply.gameObject);supplies.Clear();foreach(var meal in meals.Values)if(meal)Destroy(meal);meals.Clear();

@@ -24,8 +24,9 @@ namespace HotelTogether
         public void CheckIn(HotelGuestBot guest)
         {
             if(work.ContainsKey(guest))return;int slot=0;var occupied=new HashSet<int>();foreach(var existing in work.Values)if(!existing.bagDone)occupied.Add(existing.receptionSlot);while(occupied.Contains(slot))slot++;
-            var entry=new Work{receptionSlot=slot};work.Add(guest,entry);var p=luggageDrop.position+luggageDrop.right*(slot%4)*.43f+luggageDrop.forward*(slot/4)*.56f;
-            entry.bag=Instantiate(luggagePrefab,p,luggageDrop.rotation,transform);entry.bag.Assign(guest,GuestDeliveryType.Luggage);
+            var entry=new Work{receptionSlot=slot};work.Add(guest,entry);var p=luggageDrop.position+luggageDrop.right*(slot%4)*.58f+luggageDrop.forward*(slot/4)*.56f;
+            var bagPrefab=guest.visual&&guest.visual.arrivalLuggagePrefab?guest.visual.arrivalLuggagePrefab:luggagePrefab;
+            entry.bag=Instantiate(bagPrefab,p,luggageDrop.rotation,transform);entry.bag.Assign(guest,GuestDeliveryType.Luggage);
             var receiver=receivers[guest.RoomIndex];entry.linen=Instantiate(linenPrefab,receiver.deposit.position+Vector3.up*.05f,receiver.deposit.rotation,transform);entry.linen.Assign(guest,GuestDeliveryType.DirtyLaundry);
             hotel.player.Notify("Room "+guest.RoomLabel+": luggage delivery and laundry jobs added.");
         }

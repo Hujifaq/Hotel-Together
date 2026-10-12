@@ -1,0 +1,9 @@
+# Textured hotel wall finishes
+
+HotelLobby uses saved URP/Lit PBR surface finishes for warm limewashed plaster, fine painted teal and colored stair accents, walnut wall/slat/frame surfaces, and bathroom stone wall surfaces. Four original procedural seamless texture sets are authored at 1024px with albedo, tangent normal and metallic/smoothness mask maps. The mask uses zero metallic and varying smoothness in alpha. No downloaded assets or packages are required.
+
+HotelWallFinishBuilder is Editor-only. Apply through Hotel Together > Art > Apply textured wall finishes. It clones selected materials into Art/WallFinishes and saves metre-scaled UV meshes without altering source imported files, vertices, triangles, collisions or navigation. Only affected material slots receive new UV coordinates; tangents are recalculated. Mapping uses object-relative positions transformed by object scale/rotation, with one tile per 1.6 metres. Moving cabin textures therefore remain fixed to the cabin. Materials shared with bathroom fixtures are replaced only on wall renderers, preserving porcelain sinks and toilets.
+
+The builder is repeatable and updates stable mesh assets by renderer GlobalObjectId. After regenerating the lobby, upper floors, stairways, bathrooms or elevators with their original builders, reapply this finishing pass. No runtime generator is needed. The source scene before this change is ../tmp/wall-finishes/HotelLobby-before-wall-finishes.unity.
+
+Validation: ../output/hotel-wall-finishes-validation.json records material maps/keywords, finite UVs/tangents, shader/script errors and elevator references. Same-camera screenshots compare original and finished lobby/guest walls. Existing navigation and focused runtime elevator checks confirm the visual pass retains routes and transport.

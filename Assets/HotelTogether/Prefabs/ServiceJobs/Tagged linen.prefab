@@ -191,6 +191,7 @@ GameObject:
   - component: {fileID: 1177460757032096075}
   - component: {fileID: 6045537317324205997}
   - component: {fileID: 8860469657655436841}
+  - component: {fileID: 1300361720359369031}
   m_Layer: 0
   m_Name: Guest ownership tag
   m_TagString: Untagged
@@ -286,6 +287,19 @@ TextMesh:
   m_Color:
     serializedVersion: 2
     rgba: 4291619829
+--- !u!114 &1300361720359369031
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 4490171028614854976}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 39c3f829aa609244f834c9eff5031dd8, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::HotelTogether.HotelWorldText
+  shader: {fileID: 4800000, guid: 08221d2f180da234ab65254fb8464f15, type: 3}
 --- !u!1 &4675807887644745793
 GameObject:
   m_ObjectHideFlags: 0

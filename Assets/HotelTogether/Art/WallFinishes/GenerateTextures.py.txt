@@ -1,0 +1,28 @@
+from pathlib import Path
+import numpy as np
+from PIL import Image
+out=Path('Assets/HotelTogether/Art/WallFinishes/Textures');n=1024
+rng=np.random.default_rng(4029)
+fy=np.fft.fftfreq(n)[:,None];fx=np.fft.fftfreq(n)[None,:]
+def noise(scale,anis=1):
+ a=rng.normal(size=(n,n));v=np.fft.ifft2(np.fft.fft2(a)*np.exp(-2*np.pi*np.pi*((fx*scale)**2+(fy*scale*anis)**2))).real
+ return np.clip(v/(v.std()*3),-1,1)
+def save(kind,tone,height,smooth):
+ # Multipliers preserve the hotel's existing warm palette.
+ tone=np.clip(tone,0,1); rgb=np.repeat(tone[:,:,None],3,axis=2)
+ Image.fromarray((rgb*255).astype('uint8')).save(out/(kind+' Albedo.png'))
+ du=(np.roll(height,-1,1)-np.roll(height,1,1))/(2*1.6/n)
+ dv=(np.roll(height,-1,0)-np.roll(height,1,0))/(2*1.6/n)
+ normals=np.stack([-du,-dv,np.ones_like(height)],axis=2);normals/=np.linalg.norm(normals,axis=2)[:,:,None]
+ Image.fromarray(((normals*.5+.5)*255).astype('uint8')).save(out/(kind+' Normal.png'))
+ mask=np.zeros((n,n,4),dtype='uint8');mask[:,:,3]=(np.clip(smooth,0,1)*255).astype('uint8')
+ Image.fromarray(mask).save(out/(kind+' Roughness.png'))
+coarse=noise(45);medium=noise(10);fine=noise(.7);strokes=noise(6,9)
+save('Limewash',.91+.060*coarse+.025*medium+.018*fine,.00038*noise(3)+.00014*fine,.20+.035*medium)
+save('Paint',.93+.028*coarse+.014*fine,.00012*fine+.00008*strokes,.27+.035*medium)
+x,y=np.meshgrid(np.arange(n)/n,np.arange(n)/n)
+warp=noise(55)*.015+np.sin(y*2*np.pi*2)*.008
+grain=np.sin((x+warp)*2*np.pi*47);micro=noise(2,15)
+save('Walnut',.81+.11*grain+.045*micro+.035*coarse,.00032*grain+.00015*micro,.31+.08*grain)
+save('Limestone',.91+.05*coarse+.025*medium+.025*fine,.0006*medium+.00022*fine,.26+.05*medium)
+print('Generated 12 seamless 1024px PBR textures.')

@@ -7,6 +7,8 @@ namespace HotelTogether
         public Transform leftLeg, rightLeg, leftShin, rightShin, leftBrow, rightBrow;
         public Transform leftEye, rightEye, smile;
         public GameObject luggage;
+        public HotelGuestDelivery arrivalLuggagePrefab;
+        public Transform luggageHandle;
         Vector3 hipBase, headBase, rightElbowBase;
         float phase, blinkOffset;
         bool initialized;
@@ -35,13 +37,21 @@ namespace HotelTogether
             if(luggage) luggage.SetActive(arriving);
             if(arriving&&luggage)
             {
-                Vector3 start=rightArm.position,target=luggage.transform.TransformPoint(new Vector3(0,.49f,0));var direction=(target-start).normalized;
+                Vector3 start=rightArm.position,target=luggageHandle?luggageHandle.position:luggage.transform.TransformPoint(new Vector3(0,.49f,0));var direction=(target-start).normalized;
                 float distance=Mathf.Clamp(Vector3.Distance(target,start),.02f,.465f),upper=.235f,lower=.235f;
                 float along=(upper*upper-lower*lower+distance*distance)/(2*distance);float height=Mathf.Sqrt(Mathf.Max(0,upper*upper-along*along));
                 var bend=Vector3.ProjectOnPlane(transform.right+transform.forward*.2f,direction).normalized;var elbow=start+direction*along+bend*height;
                 rightArm.rotation=Quaternion.FromToRotation(transform.TransformDirection(rightElbowBase),elbow-start)*transform.rotation;
                 rightForearm.position=elbow;rightForearm.rotation=Quaternion.FromToRotation(-transform.up,target-elbow)*transform.rotation;
             }
+        }
+        public void HoldCup(Vector3 target)
+        {
+            var start=rightArm.position;var direction=(target-start).normalized;
+            float distance=Mathf.Clamp(Vector3.Distance(target,start),.02f,.465f),along=distance*.5f;
+            var elbow=start+direction*along+Vector3.ProjectOnPlane(transform.right,direction).normalized*Mathf.Sqrt(Mathf.Max(0,.235f*.235f-along*along));
+            rightArm.rotation=Quaternion.FromToRotation(transform.TransformDirection(rightElbowBase),elbow-start)*transform.rotation;
+            rightForearm.position=elbow;rightForearm.rotation=Quaternion.FromToRotation(-transform.up,target-elbow)*transform.rotation;
         }
     }
 }

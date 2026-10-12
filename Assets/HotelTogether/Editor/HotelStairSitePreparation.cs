@@ -27,7 +27,7 @@ public static class HotelStairSitePreparation
             if(inside.Count<3)yield break;
         }
     }
-    static void CutMesh(MeshFilter filter,Bounds cut)
+    static void CutMesh(MeshFilter filter,Bounds cut,string assetPrefix="Assets/HotelTogether/Art/Stairways/Site ")
     {
         var mesh=filter.sharedMesh;if(!mesh)return;var renderer=filter.GetComponent<Renderer>();if(!renderer||!renderer.bounds.Intersects(cut))return;
         var source=mesh.vertices;var normal=mesh.normals;var uv=mesh.uv;var positions=new List<Vector3>();var normals=new List<Vector3>();var tex=new List<Vector2>();var submeshes=new List<int[]>();bool changed=false;
@@ -41,7 +41,7 @@ public static class HotelStairSitePreparation
             }submeshes.Add(indices.ToArray());
         }
         if(!changed)return;
-        var path="Assets/HotelTogether/Art/Stairways/Site "+filter.gameObject.GetEntityId().ToString().Replace(":","-")+".asset";
+        var path=assetPrefix+filter.gameObject.GetEntityId().ToString().Replace(":","-")+".asset";
         var output=new Mesh{name="Stair site retained mesh",indexFormat=IndexFormat.UInt32};output.SetVertices(positions);output.SetNormals(normals);output.SetUVs(0,tex);output.subMeshCount=submeshes.Count;for(int i=0;i<submeshes.Count;i++)output.SetTriangles(submeshes[i],i);output.RecalculateBounds();var existing=AssetDatabase.LoadAssetAtPath<Mesh>(path);if(existing){EditorUtility.CopySerialized(output,existing);Object.DestroyImmediate(output);output=existing;EditorUtility.SetDirty(existing);}else AssetDatabase.CreateAsset(output,path);Undo.RecordObject(filter,"Cut stair site geometry");filter.sharedMesh=output;EditorUtility.SetDirty(filter);
         var collider=filter.GetComponent<MeshCollider>();if(collider){Undo.RecordObject(collider,"Cut stair site collider");collider.sharedMesh=null;collider.sharedMesh=output;}
     }
@@ -59,6 +59,20 @@ public static class HotelStairSitePreparation
         foreach(var f in Object.FindObjectsByType<MeshFilter>(FindObjectsInactive.Exclude,FindObjectsSortMode.None)){
             if(f.transform.IsChildOf(replacement)||f.GetComponentInParent<HotelTogether.HotelItem>()||f.GetComponentInParent<HotelTogether.HotelPlayer>())continue;
             CutMesh(f,cut);
+        }
+    }
+    public static void CutElevatorVolume(Transform replacement,Bounds cut)
+    {
+        var retained=GameObject.Find("Elevator retained structure");if(!retained)retained=new GameObject("Elevator retained structure");
+        foreach(var f in Object.FindObjectsByType<MeshFilter>(FindObjectsInactive.Exclude,FindObjectsSortMode.None)){
+            if(f.transform.IsChildOf(replacement)||f.GetComponentInParent<HotelTogether.HotelItem>()||f.GetComponentInParent<HotelTogether.HotelPlayer>())continue;
+            CutMesh(f,cut,"Assets/HotelTogether/Art/Elevators/Shaft ");
+        }
+        foreach(var c in Object.FindObjectsByType<BoxCollider>(FindObjectsSortMode.None)){
+            if(!c.enabled||c.isTrigger||c.transform.IsChildOf(replacement)||c.GetComponentInParent<HotelTogether.HotelItem>()||!cut.Intersects(c.bounds))continue;
+            var overlap=Vector3.Min(c.bounds.max,cut.max)-Vector3.Max(c.bounds.min,cut.min);if(overlap.x<.001f||overlap.y<.001f||overlap.z<.001f)continue;
+            var source=c.bounds;c.enabled=false;EditorUtility.SetDirty(c);
+            foreach(var b in Outside(source,cut)){if(b.size.x<.001f||b.size.y<.001f||b.size.z<.001f)continue;var g=new GameObject("Retained structure outside elevator shaft");g.transform.SetParent(retained.transform,false);g.transform.position=b.center;g.AddComponent<BoxCollider>().size=b.size;}
         }
     }
     public static void Prepare(Transform replacement,float wall,float z)

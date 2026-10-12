@@ -31,6 +31,9 @@ namespace HotelTogether
         {
             var options=new[]{new Vector3(0,4.525f,-18),new Vector3(0,9.025f,-20.8f),new Vector3(14,4.525f,-20.5f)};
             refuge=options[0];var filter=new NavMeshQueryFilter{agentTypeID=guest.Agent.agentTypeID,areaMask=guest.Agent.areaMask};var path=new NavMeshPath();
+            // Onboard guests temporarily suspend their NavMeshAgent. Re-evaluate
+            // alternate refuges after disembarking instead of querying an inactive agent.
+            if(!guest.Agent.enabled||!guest.Agent.isOnNavMesh)return;
             foreach(var point in options){if(director.NearestThreat(point,8)||!NavMesh.SamplePosition(point,out var hit,1.2f,filter)||Mathf.Abs(hit.position.y-point.y)>.3f)continue;if(guest.Agent.CalculatePath(hit.position,path)&&path.status==NavMeshPathStatus.PathComplete){refuge=hit.position;break;}}
         }
         public bool Escort(HotelPlayer player)
@@ -46,6 +49,7 @@ namespace HotelTogether
         void Update()
         {
             if(!director||!director.Running)return;
+            if(guest.liftPassenger&&guest.liftPassenger.Active)return;
             if(!human.Targetable){guest.StopForDanger();return;}
             if(IsTakingCover&&!director.IsNight&&!director.NearestThreat(transform.position,9)){EndDanger();return;}
             if(!IsTakingCover){if(director.NearestThreat(transform.position,9))OnThreat();else return;}
@@ -69,6 +73,7 @@ namespace HotelTogether
                 if(!cover||!cover.Blocks){if(shelterDoor)shelterDoor.open=true;arrived=false;shelterDoor=null;ChooseAlternateRefuge();}
             }
             Vector3 target=escort?escort.transform.position-escort.transform.forward*1.4f:refuge;
+            if(guest.liftPassenger&&Mathf.Abs(target.y-transform.position.y)>3&&guest.liftPassenger.TryBegin(target))return;
             if(shelterDoor&&!arrived){var opening=shelterDoor.GetComponent<HotelDefenseOpening>();if(!opening||opening.BoardCount==0)shelterDoor.open=true;}
             guest.Hotel.OpenNearbyDoors(transform.position);
             var filter=new NavMeshQueryFilter{agentTypeID=agent.agentTypeID,areaMask=agent.areaMask};var path=new NavMeshPath();
