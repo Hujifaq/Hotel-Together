@@ -14,6 +14,7 @@ public static class HotelRooftopBuilder
     const string Art="Assets/HotelTogether/Art/Rooftop/";
     static Transform root,zone;
     static Mesh cube,sphere,cylinder;
+    static GameObject treePrefab;
     static Material stone,wood,woodLight,teal,cream,metal,soil,green,lightGreen,flower,white,net;
     static readonly Dictionary<Material,List<CombineInstance>> batches=new();
     static readonly List<Mesh> temporaryMeshes=new();
@@ -63,7 +64,15 @@ public static class HotelRooftopBuilder
     {
         Box(stone,V(x,.30f,z),new Vector3(width,.60f,depth));Box(soil,V(x,.606f,z),new Vector3(width-.18f,.018f,depth-.18f));
         for(float dx=-width/2+.4f;dx<width/2-.2f;dx+=.65f)for(float dz=-depth/2+.35f;dz<depth/2-.15f;dz+=.65f){Ball(green,V(x+dx,.9f,z+dz),new Vector3(.64f,.60f,.64f));if(((int)((dx+width)*3))%3==0)Ball(flower,V(x+dx,.99f,z+dz+.08f),new Vector3(.18f,.20f,.18f));}
-        if(tree){Pole(wood,V(x,1.45f,z),.17f,1.7f);Ball(green,V(x,2.60f,z),new Vector3(1.8f,2.0f,1.8f));Ball(lightGreen,V(x+.55f,2.45f,z-.3f),new Vector3(1.1f,1.35f,1.1f));}
+        if(tree)
+        {
+            var instance=(GameObject)PrefabUtility.InstantiatePrefab(treePrefab);
+            instance.name="Cartoon planter tree";
+            instance.transform.SetParent(zone,false);
+            instance.transform.localPosition=V(x,.615f,z);
+            instance.transform.localRotation=Quaternion.Euler(0,Mathf.Repeat(x*41+z*57,360),0);
+            instance.transform.localScale=new Vector3(.35f,.45f,.35f);
+        }
         Obstacle("Raised planter",V(x,.30f,z),new Vector3(width,.6f,depth));
     }
     static void Bench(float x,float z,float yaw=0,bool upholstered=false,float width=2.2f)
@@ -113,6 +122,7 @@ public static class HotelRooftopBuilder
     public static void Apply()
     {
         if(EditorApplication.isPlayingOrWillChangePlaymode)throw new InvalidOperationException("Exit Play Mode first.");
+        treePrefab=AssetDatabase.LoadAssetAtPath<GameObject>(HotelTreeModelBuilder.PrefabPath);if(!treePrefab)throw new InvalidOperationException("Prepare the cartoon tree model first.");
         var scene=UnityEngine.SceneManagement.SceneManager.GetActiveScene();var original=GameObject.Find("Level 3 - empty rooftop zones");
         if(scene.name!="HotelLobby"||!original)throw new InvalidOperationException("Open the HotelLobby rooftop scene.");
         Directory.CreateDirectory(Art);string backup=Path.GetFullPath("../tmp/rooftop/HotelLobby-before-furnishing.unity");if(!File.Exists(backup))EditorSceneManager.SaveScene(scene,backup,true);

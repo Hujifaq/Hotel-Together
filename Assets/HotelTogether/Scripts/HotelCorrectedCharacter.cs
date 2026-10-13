@@ -13,6 +13,20 @@ namespace HotelTogether
     {
         const string CustomerPath = "HotelTogetherCharacters/Customer-Corrected-v2";
         const string ZombiePath = "HotelTogetherCharacters/Zombie-Corrected";
+        const string LookPath = "HotelTogetherCharacters/CustomerLooks/";
+        static readonly string[] LookNames = { "01-Tropical", "02-Coastal", "03-Garden", "04-Sunset", "05-Midnight", "06-Skyline" };
+        static readonly Color32[] SkinColors =
+        {
+            new Color32(251, 177, 128, 255), new Color32(205, 139, 95, 255),
+            new Color32(247, 195, 151, 255), new Color32(184, 112, 78, 255),
+            new Color32(136, 80, 61, 255), new Color32(231, 168, 119, 255)
+        };
+        static readonly Color32[] HairColors =
+        {
+            new Color32(151, 88, 35, 255), new Color32(55, 42, 40, 255),
+            new Color32(188, 100, 55, 255), new Color32(89, 57, 39, 255),
+            new Color32(45, 38, 49, 255), new Color32(204, 160, 91, 255)
+        };
 
         sealed class Part
         {
@@ -26,12 +40,14 @@ namespace HotelTogether
         }
 
         static Model customerModel, zombieModel;
+        static Material[][] customerLookMaterials;
 
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
         static void ResetCache()
         {
             customerModel = null;
             zombieModel = null;
+            customerLookMaterials = null;
         }
 
         static bool IsValid(Model model) => model != null && model.parts != null &&
@@ -91,6 +107,94 @@ namespace HotelTogether
         static readonly Vector3 Wrist = new Vector3(.49f, .63f, .035f);
         static readonly Quaternion GripTurn = Quaternion.Euler(0, 90, 0);
         static Vector3 GripPoint => Wrist + GripTurn * (new Vector3(.495f, .54f, .055f) - Wrist);
+
+        public static void ApplyCustomerLook(HotelGuestVisual visual, int lookIndex)
+        {
+            if (!visual || !IsValid(customerModel)) return;
+            int index = ((lookIndex % LookNames.Length) + LookNames.Length) % LookNames.Length;
+            if (customerLookMaterials == null) customerLookMaterials = new Material[LookNames.Length][];
+            if (customerLookMaterials[index] == null || customerLookMaterials[index].Any(m => !m))
+            {
+                var atlas = Resources.Load<Texture2D>(LookPath + LookNames[index]);
+                if (!atlas)
+                {
+                    Debug.LogError("Missing customer UV atlas: " + LookNames[index]);
+                    return;
+                }
+                var baseMaterials = customerModel.parts[0].materials;
+                var materials = (Material[])baseMaterials.Clone();
+                for (int i = 0; i < materials.Length; i++)
+                {
+                    string name = materials[i].name.ToLowerInvariant();
+                    if (!name.Contains("shirthairclothes") && name != "skin" && !name.Contains("eyebrow")) continue;
+                    var material = new Material(materials[i]) { name = materials[i].name + " / " + LookNames[index] };
+                    if (name.Contains("shirthairclothes")) material.mainTexture = atlas;
+                    else material.color = name == "skin" ? SkinColors[index] : HairColors[index];
+                    materials[i] = material;
+                }
+                customerLookMaterials[index] = materials;
+            }
+            foreach (var renderer in visual.GetComponentsInChildren<SkinnedMeshRenderer>(true))
+            {
+                if (!renderer.enabled || !renderer.name.StartsWith("Corrected customer skin", StringComparison.Ordinal)) continue;
+                renderer.sharedMaterials = customerLookMaterials[index];
+                for (int i = 1; i < renderer.sharedMesh.blendShapeCount; i++)
+                    renderer.SetBlendShapeWeight(i, i == index ? 100 : 0);
+            }
+            var bun = visual.head.Find("Customer hair bun");
+            if (index == 5 && !bun)
+            {
+                var bunObject = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                bunObject.name = "Customer hair bun";
+                bunObject.transform.SetParent(visual.head, false);
+                bunObject.transform.localPosition = new Vector3(0, .16f, -.48f);
+                bunObject.transform.localScale = new Vector3(.36f, .28f, .31f);
+                bunObject.layer = visual.gameObject.layer;
+                var collider = bunObject.GetComponent<Collider>();
+                if (Application.isPlaying) UnityEngine.Object.Destroy(collider);
+                else UnityEngine.Object.DestroyImmediate(collider);
+                bunObject.GetComponent<MeshRenderer>().sharedMaterial = customerLookMaterials[index][3];
+            }
+            else if (bun) bun.gameObject.SetActive(index == 5);
+        }
+
+        static void AddHairStyles(Mesh mesh, Vector3[] vertices, byte[] roles)
+        {
+            var mask = Resources.Load<Texture2D>(LookPath + "Hair-UV-Mask");
+            if (!mask || !mask.isReadable)
+            {
+                Debug.LogError("Customer hair UV mask is missing or not readable.");
+                return;
+            }
+            var uv = mesh.uv;
+            var hair = new float[vertices.Length];
+            for (int i = 0; i < hair.Length; i++)
+                if (roles[i] == 6 && vertices[i].y > 1.28f)
+                    hair[i] = mask.GetPixelBilinear(uv[i].x, uv[i].y).r;
+            var normalDelta = new Vector3[vertices.Length];
+            for (int style = 1; style < LookNames.Length; style++)
+            {
+                var delta = new Vector3[vertices.Length];
+                for (int i = 0; i < vertices.Length; i++)
+                {
+                    if (hair[i] < .5f) continue;
+                    var p = vertices[i];
+                    float top = Mathf.SmoothStep(0, 1, Mathf.InverseLerp(1.36f, 1.69f, p.y));
+                    float front = Mathf.SmoothStep(0, 1, Mathf.InverseLerp(-.03f, .23f, p.z));
+                    float side = Mathf.SmoothStep(0, 1, Mathf.InverseLerp(.12f, .28f, Mathf.Abs(p.x)));
+                    Vector3 offset = style switch
+                    {
+                        1 => new Vector3(-p.x * .13f * side, .075f * (1 - top) * side - .085f * top, -p.z * .055f * top), // short crop
+                        2 => new Vector3(.18f * (.4f + .6f * top) * front, .03f * top, .045f * front * top), // side sweep
+                        3 => new Vector3(0, .17f * top * front * (.76f + .24f * Mathf.Cos(p.x * 24)), .065f * top * front), // quiff
+                        4 => new Vector3(Mathf.Sign(p.x) * .045f * side, -.16f * (1 - top) * side, 0), // longer sides
+                        _ => new Vector3(0, .04f * top * (1 - front), -.17f * top * front) // swept back bun
+                    };
+                    delta[i] = offset * hair[i];
+                }
+                mesh.AddBlendShapeFrame("HairStyle" + style, 100, delta, normalDelta, null);
+            }
+        }
 
         static void AddLuggageGrip(Mesh mesh, Vector3[] vertices, byte[] roles)
         {
@@ -292,7 +396,11 @@ namespace HotelTogether
                     weights[i] = Weight(vertices[i], roles[i], zombie);
                 mesh.boneWeights = weights;
                 mesh.bindposes = bones.Select(b => b.worldToLocalMatrix * visual.transform.localToWorldMatrix).ToArray();
-                if (!zombie) AddLuggageGrip(mesh, vertices, roles);
+                if (!zombie)
+                {
+                    AddLuggageGrip(mesh, vertices, roles);
+                    AddHairStyles(mesh, vertices, roles);
+                }
                 mesh.RecalculateBounds();
                 parts.Add(new Part { mesh = mesh, materials = source.renderer.sharedMaterials });
             }
