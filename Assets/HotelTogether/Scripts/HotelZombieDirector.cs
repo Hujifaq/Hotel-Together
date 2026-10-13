@@ -26,12 +26,11 @@ namespace HotelTogether
         readonly List<HotelZombieBot> zombies=new();
         float activeNightTime,nextSpawn;
         bool wasNight;
-        Texture2D panel;Font font;GUIStyle label,heading;
         public int ActiveCount {get{int count=0;foreach(var z in zombies)if(z&&z.Alive)count++;return count;}}
         public int WaveForNight(int night)=>Mathf.Min(maxWave,firstWave+Mathf.Max(0,night-1)*waveGrowth);
         public void Register(HotelHuman human){if(!humans.Contains(human))humans.Add(human);if(IsNight&&wasNight&&human.Guest&&human.Targetable)human.GetComponent<HotelGuestSurvival>()?.OnThreat();}
         public void Unregister(HotelHuman human){humans.Remove(human);}
-        public void Alert(string text){if(hotel&&hotel.player)hotel.player.Notify(text);}
+        public void Alert(string text){if(hotel&&hotel.player)hotel.player.Notify(text,true);}
         public void Casualty(HotelHuman human){Lost++;Alert(human.Player?"You could not recover. R to start over.":human.Guest.guestName+" was lost.");}
         public void Kill(HotelZombieBot zombie){Kills++;zombies.Remove(zombie);}
         void Update()
@@ -89,21 +88,5 @@ namespace HotelTogether
             ClearZombies();wasNight=false;NightNumber=WaveTotal=Spawned=Rescued=Lost=Kills=0;woodStock=24;medicineStock=3;activeNightTime=nextSpawn=0;
             foreach(var opening in openings)if(opening)opening.ResetOpening();if(combat)combat.ResetCombat();
         }
-        void OnGUI()
-        {
-            if(!Running||!combat)return;
-            if(!panel){font=Resources.Load<Font>("HotelTogetherUI/LilitaOne-Regular");panel=new Texture2D(1,1);panel.SetPixel(0,0,new Color(.13f,.035f,.035f,.90f));panel.Apply();label=new GUIStyle{font=font,fontSize=18,normal={textColor=new Color(1,.90f,.79f)}};heading=new GUIStyle(label){fontSize=24};}
-            var matrix=GUI.matrix;var color=GUI.color;float scale=Mathf.Clamp(Mathf.Min(Screen.width/1200f,Screen.height/700f),.45f,2);GUI.matrix=Matrix4x4.TRS(Vector3.zero,Quaternion.identity,Vector3.one*scale);float height=Screen.height/scale;
-            GUI.DrawTexture(new Rect(18,120,300,113),panel);GUI.Label(new Rect(31,128,280,27),IsNight?"NIGHT "+NightNumber+"  /  DEFEND":"PREPARE YOUR DEFENSES",heading);
-            GUI.Label(new Rect(31,158,280,24),IsNight?"Wave "+Spawned+"/"+WaveTotal+"   Alive "+ActiveCount:"Next wave: "+WaveForNight(hotel.DayNumber),label);
-            GUI.Label(new Rect(31,184,280,24),"Saved "+Rescued+"   Lost "+Lost+"   Kills "+Kills,label);
-            GUI.DrawTexture(new Rect(18,height-145,300,127),panel);GUI.Label(new Rect(31,height-137,275,27),"HEALTH "+Mathf.CeilToInt(combat.Human.Health)+"   ENERGY "+Mathf.CeilToInt(combat.Stamina),heading);
-            GUI.Label(new Rect(31,height-104,275,24),"Wood "+combat.Wood+"   Medicine "+combat.Medicine,label);GUI.Label(new Rect(31,height-80,280,24),"F BAT   LMB HIT   RMB BLOCK",label);GUI.Label(new Rect(31,height-56,275,24),"H HEAL   E RESCUE   B BOARD",label);
-            var opening=hotel.player.FocusedItem?hotel.player.FocusedItem.GetComponentInParent<HotelDefenseOpening>():null;
-            if(opening){GUI.DrawTexture(new Rect(18,245,300,93),panel);GUI.Label(new Rect(31,253,275,24),opening.label,label);GUI.Label(new Rect(31,277,275,24),"Planks "+opening.BoardCount+"/4   HP "+Mathf.CeilToInt(opening.BoardHealth+opening.StructureHealth),label);GUI.Label(new Rect(31,302,275,24),"B ADD   N REMOVE   T REPAIR",label);}
-            if(combat.IsDown){GUI.DrawTexture(new Rect(Screen.width/scale*.5f-205,height*.45f,410,86),panel);GUI.Label(new Rect(Screen.width/scale*.5f-185,height*.45f+13,390,29),"YOU ARE DOWN",heading);GUI.Label(new Rect(Screen.width/scale*.5f-185,height*.45f+47,390,25),"H use medicine / R start over",label);}
-            GUI.color=color;GUI.matrix=matrix;
-        }
-        void OnDestroy(){if(panel)Destroy(panel);}
     }
 }

@@ -9,14 +9,30 @@ namespace HotelTogether
         public GameObject luggage;
         public HotelGuestDelivery arrivalLuggagePrefab;
         public Transform luggageHandle;
-        Vector3 hipBase, headBase, rightElbowBase;
+        Vector3 hipBase, headBase, rightElbowBase, luggageBase, luggageScaleBase;
+        Quaternion luggageRotationBase;
         float phase, blinkOffset;
-        bool initialized;
+        bool initialized, hasLuggageGrip;
+        Vector3 luggageGripLocal;
+        SkinnedMeshRenderer[] gripRenderers;
+        public void SetLuggageGrip(Vector3 worldPoint)
+        {
+            luggageGripLocal = rightForearm.InverseTransformPoint(worldPoint);
+            hasLuggageGrip = true;
+            gripRenderers = GetComponentsInChildren<SkinnedMeshRenderer>();
+        }
+        void Awake()
+        {
+            if (!Application.isPlaying) return;
+            try { HotelCorrectedCharacter.Install(this); }
+            catch (System.Exception error) { Debug.LogError("Could not skin corrected hotel character: " + error); }
+        }
         public void Pose(float speed, float elapsed, bool seated, bool sleeping, bool hungry, float happiness, bool arriving)
         {
-            if (!initialized) { hipBase=hips.localPosition;headBase=head.localPosition;rightElbowBase=rightForearm.localPosition;blinkOffset=Random.Range(0,4.7f);initialized=true; }
+            if (!initialized) { hipBase=hips.localPosition;headBase=head.localPosition;rightElbowBase=rightForearm.localPosition;if(luggage){luggageBase=luggage.transform.localPosition;luggageRotationBase=luggage.transform.localRotation;luggageScaleBase=luggage.transform.localScale;}blinkOffset=Random.Range(0,4.7f);initialized=true; }
             float motion=Mathf.Clamp01(speed/1.7f);phase+=speed*elapsed*8;
             float stride=Mathf.Sin(phase)*24*motion;
+            bool tallLuggage = arriving && luggageHandle && luggageHandle.localPosition.z < -.1f;
             hips.localPosition=hipBase+Vector3.up*(Mathf.Cos(phase*2)*.012f*motion-(seated?.36f:0));
             head.localPosition=headBase;
             rightForearm.localPosition=rightElbowBase;
@@ -25,24 +41,33 @@ namespace HotelTogether
             leftShin.localRotation=Quaternion.Euler(seated?78:Mathf.Max(0,-stride)*.7f,0,0);
             rightShin.localRotation=Quaternion.Euler(seated?78:Mathf.Max(0,stride)*.7f,0,0);
             leftArm.localRotation=Quaternion.Euler(-stride*.65f,0,8);
-            rightArm.localRotation=Quaternion.Euler(arriving?12:stride*.65f,0,-8);
+            rightArm.localRotation=Quaternion.Euler(arriving?35:stride*.65f,0,-8);
             leftForearm.localRotation=Quaternion.Euler(seated?-42:-8,0,0);
-            rightForearm.localRotation=Quaternion.Euler(seated?-42:arriving?-22:-8,0,0);
+            rightForearm.localRotation=arriving?Quaternion.identity:Quaternion.Euler(seated?-42:-8,0,0);
             if(hungry&&seated) rightForearm.localRotation=Quaternion.Euler(-55+Mathf.Sin(Time.time*3)*18,0,0);
             float blink=sleeping?.04f:(Mathf.Repeat(Time.time+blinkOffset,4.7f)<.13f?.12f:1);
             leftEye.localScale=new Vector3(1,blink,1);rightEye.localScale=new Vector3(1,blink,1);
             leftBrow.localRotation=Quaternion.Euler(0,0,happiness<.35f?-17:6);
             rightBrow.localRotation=Quaternion.Euler(0,0,happiness<.35f?17:-6);
             smile.localScale=new Vector3(1,happiness<.35f?.4f:1,1);
-            if(luggage) luggage.SetActive(arriving);
-            if(arriving&&luggage)
+            if (gripRenderers != null)
+                foreach (var skin in gripRenderers)
+                    if (skin && skin.enabled && skin.sharedMesh && skin.sharedMesh.blendShapeCount > 0)
+                        skin.SetBlendShapeWeight(0, arriving && !seated ? 100 : 0);
+            if(luggage)
             {
-                Vector3 start=rightArm.position,target=luggageHandle?luggageHandle.position:luggage.transform.TransformPoint(new Vector3(0,.49f,0));var direction=(target-start).normalized;
-                float distance=Mathf.Clamp(Vector3.Distance(target,start),.02f,.465f),upper=.235f,lower=.235f;
-                float along=(upper*upper-lower*lower+distance*distance)/(2*distance);float height=Mathf.Sqrt(Mathf.Max(0,upper*upper-along*along));
-                var bend=Vector3.ProjectOnPlane(transform.right+transform.forward*.2f,direction).normalized;var elbow=start+direction*along+bend*height;
-                rightArm.rotation=Quaternion.FromToRotation(transform.TransformDirection(rightElbowBase),elbow-start)*transform.rotation;
-                rightForearm.position=elbow;rightForearm.rotation=Quaternion.FromToRotation(-transform.up,target-elbow)*transform.rotation;
+                // Pull with a straight arm behind the body. The two case meshes
+                // differ in height, so each needs its own grounded lean.
+                luggage.transform.localPosition = luggageBase + (arriving
+                    ? tallLuggage ? new Vector3(-.12f, -.075f, -.22f) : new Vector3(-.12f, -.075f, -.38f)
+                    : Vector3.zero);
+                luggage.transform.localRotation = luggageRotationBase * (arriving ? Quaternion.Euler(45, 0, 0) : Quaternion.identity);
+                luggage.transform.localScale = Vector3.Scale(luggageScaleBase,
+                    arriving ? new Vector3(1, tallLuggage ? .65f : .8f, 1) : Vector3.one);
+                // Anchor the handle to the animated palm, including the walking bob.
+                if (arriving && hasLuggageGrip && luggageHandle)
+                    luggage.transform.position += rightForearm.TransformPoint(luggageGripLocal) - luggageHandle.position;
+                luggage.SetActive(arriving);
             }
         }
         public void HoldCup(Vector3 target)

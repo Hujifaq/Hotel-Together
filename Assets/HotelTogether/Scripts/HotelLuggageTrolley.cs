@@ -26,7 +26,7 @@ namespace HotelTogether
             player.Drop();bag.Detach();loaded.Add(bag);bag.Trolley=this;
             var body=bag.GetComponent<Rigidbody>();body.linearVelocity=body.angularVelocity=Vector3.zero;body.isKinematic=true;
             foreach(var c in bag.GetComponentsInChildren<Collider>())c.enabled=false;
-            Arrange();player.Notify("Loaded for Room "+bag.Owner.RoomLabel+". Delivery route is on the HUD; take the lift to floor 2.");return true;
+            Arrange();player.Notify("Loaded for Room "+bag.Owner.RoomLabel+". J shows the delivery route. Take the lift to floor 2.");return true;
         }
         void Arrange(){for(int i=0;i<loaded.Count;i++){if(!loaded[i])continue;loaded[i].transform.SetParent(slots[i],false);loaded[i].transform.localPosition=Vector3.zero;loaded[i].transform.localRotation=Quaternion.identity;}}
         public void Detach(HotelGuestDelivery bag)

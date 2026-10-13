@@ -21,8 +21,23 @@ namespace HotelTogether
         public int MealsServed { get; private set; }
         sealed class Work {public HotelGuestDelivery bag,linen;public bool bagDone,linenDone;public int receptionSlot;}
         readonly Dictionary<HotelGuestBot,Work> work=new();
-        int page;
-        HotelServiceGuide guide;float guideRefresh;GUIStyle guideText,guideTitle;
+        HotelServiceGuide guide;float guideRefresh;
+        public HotelServiceGuide Guide => guide;
+        public int PendingCount
+        {
+            get
+            {
+                int count=housekeeping?housekeeping.Pending:0;
+                foreach(var guest in hotel.Guests)
+                {
+                    if(!guest)continue;
+                    if(guest.Need!=GuestNeed.None&&guest.Need!=GuestNeed.Luggage)count++;
+                    if(work.TryGetValue(guest,out var entry)){if(!entry.bagDone)count++;if(!entry.linenDone)count++;}
+                }
+                return count;
+            }
+        }
+        public string LuggageStatus(HotelGuestBot guest)=>work.TryGetValue(guest,out var entry)?entry.bagDone?"Luggage delivered":"Deliver luggage to Room "+guest.RoomLabel:"";
         public void CheckIn(HotelGuestBot guest)
         {
             if(work.ContainsKey(guest))return;int slot=0;var occupied=new HashSet<int>();foreach(var existing in work.Values)if(!existing.bagDone)occupied.Add(existing.receptionSlot);while(occupied.Contains(slot))slot++;
@@ -77,45 +92,13 @@ namespace HotelTogether
         {
             if(housekeeping)housekeeping.ResetCleaning();
             foreach(var trolley in trolleys)trolley.ResetCargo();foreach(var washer in washers)washer.ResetMachine();foreach(var tray in trays)tray.ResetTray();
-            foreach(var entry in work.Values){if(entry.bag)Destroy(entry.bag.gameObject);if(entry.linen)Destroy(entry.linen.gameObject);}work.Clear();Completed=BagsDelivered=LaundryReturned=MealsServed=page=0;
+            foreach(var entry in work.Values){if(entry.bag)Destroy(entry.bag.gameObject);if(entry.linen)Destroy(entry.linen.gameObject);}work.Clear();Completed=BagsDelivered=LaundryReturned=MealsServed=0;
         }
         void Update()
         {
             if(!hotel.Running||Keyboard.current==null||hotel.player.combat&&hotel.player.combat.IsDown)return;
             if(Time.time>=guideRefresh){guide=HotelServiceGuidance.Build(this,hotel.player);guideRefresh=Time.time+.15f;}
-            if(Keyboard.current.jKey.wasPressedThisFrame)page++;
             if(Keyboard.current.gKey.wasPressedThisFrame){var trolley=hotel.player.cart?hotel.player.cart.GetComponent<HotelLuggageTrolley>():hotel.player.FocusedItem?hotel.player.FocusedItem.GetComponent<HotelLuggageTrolley>():null;if(trolley){if(hotel.player.held)trolley.Load(hotel.player);else trolley.Unload(hotel.player);}}
-        }
-        public void DrawBoard(float x,Texture2D panel,GUIStyle title,GUIStyle small)
-        {
-            int count=hotel.Guests.Count,pages=Mathf.Max(1,(count+4)/5);page%=pages;int first=page*5,shown=Mathf.Min(5,count-first);var color=GUI.color;
-            GUI.DrawTexture(new Rect(x,18,317,90+shown*84),panel);GUI.Label(new Rect(x+14,26,290,28),"HOTEL JOBS  "+Completed,title);GUI.Label(new Rect(x+14,54,290,24),"J next page "+(page+1)+"/"+pages+"   G load/unload",small);
-            for(int i=0;i<shown;i++)
-            {
-                var guest=hotel.Guests[first+i];if(!guest)continue;float y=88+i*84;
-                GUI.color=color;GUI.Label(new Rect(x+14,y,290,21),guest.guestName+" / ROOM "+guest.RoomLabel,small);
-                GUI.color=new Color(1,.82f,.38f);GUI.Label(new Rect(x+14,y+21,290,21),guest.Need!=GuestNeed.None?guest.NeedLabel:guest.StatusLabel,small);
-                if(work.TryGetValue(guest,out var entry)){GUI.color=new Color(.7f,.92f,.82f);GUI.Label(new Rect(x+14,y+42,290,21),entry.bagDone?"Luggage delivered":"Luggage -> room "+guest.RoomLabel,small);GUI.Label(new Rect(x+14,y+62,290,21),LaundryStatus(guest),small);}
-            }
-            GUI.color=color;
-            DrawGuidance(x,panel,small);
-        }
-        void DrawGuidance(float boardX,Texture2D panel,GUIStyle small)
-        {
-            if(guideText==null)guideText=new GUIStyle();if(guideTitle==null)guideTitle=new GUIStyle();
-            // Native IMGUI styles can lose their contents with domain/scene reload disabled.
-            var guideFont=small.font?small.font:Resources.Load<Font>("HotelTogetherUI/LilitaOne-Regular");
-            guideText.font=guideFont;guideText.fontSize=17;guideText.wordWrap=true;guideText.clipping=TextClipping.Clip;guideText.normal.textColor=new Color(.94f,.97f,.98f);
-            guideTitle.font=guideFont;guideTitle.fontSize=21;guideTitle.normal.textColor=new Color(1,.86f,.46f);GUI.contentColor=Color.white;
-            float width=boardX-350;if(width<300)return;float stepsHeight=guideText.CalcHeight(new GUIContent(guide.steps??""),width-24);float manifestHeight=string.IsNullOrEmpty(guide.manifest)?0:guideText.CalcHeight(new GUIContent(guide.manifest),width-24);float height=61+stepsHeight+(manifestHeight>0?manifestHeight+10:0)+16;var card=new Rect(335,112,width,Mathf.Max(155,height));GUI.DrawTexture(card,panel);GUI.Label(new Rect(card.x+12,card.y+8,width-24,27),guide.title,guideTitle);
-            GUI.color=new Color(1,.83f,.39f);if(guide.target.HasValue)GUI.Label(new Rect(card.x+12,card.y+35,width-24,23),HotelServiceGuidance.Direction(hotel,guide.target.Value),guideText);GUI.color=Color.white;GUI.Label(new Rect(card.x+12,card.y+61,width-24,stepsHeight+2),guide.steps,guideText);
-            if(!string.IsNullOrEmpty(guide.manifest)){GUI.color=new Color(.72f,.96f,.84f);GUI.Label(new Rect(card.x+12,card.y+71+stepsHeight,width-24,manifestHeight+2),guide.manifest,guideText);GUI.color=Color.white;}
-            var m=housekeeping?housekeeping.ActiveMop:null;if(!m&&hotel.player.FocusedItem)m=hotel.player.FocusedItem.GetComponent<HotelFloorMess>();if(m&&m.type==FloorMessType.Wet&&m.Progress>0){GUI.color=new Color(.12f,.7f,.62f);GUI.DrawTexture(new Rect(card.x+12,card.yMax-8,(width-24)*m.Progress,4),Texture2D.whiteTexture);GUI.color=Color.white;}
-            DrawRequests(panel,small);
-        }
-        void DrawRequests(Texture2D panel,GUIStyle small)
-        {
-            float scale=Mathf.Clamp(Mathf.Min(Screen.width/1200f,Screen.height/700f),.45f,2);foreach(var g in hotel.Guests){if(!g||g.Need==GuestNeed.None||Vector3.Distance(hotel.player.transform.position,g.transform.position)>12)continue;var body=g.transform.position+Vector3.up;var delta=body-hotel.player.view.transform.position;if(Physics.Raycast(hotel.player.view.transform.position,delta.normalized,out var hit,delta.magnitude+.1f,~((1<<8)|(1<<9)),QueryTriggerInteraction.Ignore)&&hit.collider.GetComponentInParent<HotelGuestBot>()!=g)continue;var point=hotel.player.view.WorldToScreenPoint(g.transform.position+Vector3.up*2.1f);if(point.z<=0||point.x<0||point.x>Screen.width)continue;var rect=new Rect(point.x/scale-130,(Screen.height-point.y)/scale-15,260,30);GUI.DrawTexture(rect,panel);GUI.Label(new Rect(rect.x+5,rect.y+4,250,25),"ROOM "+g.RoomLabel+" / "+g.NeedLabel,small);}
         }
     }
 }
