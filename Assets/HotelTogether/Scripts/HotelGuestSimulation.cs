@@ -69,6 +69,7 @@ namespace HotelTogether
             var prefab=guestPrefabs[guestSerial%guestPrefabs.Length];var filter=new NavMeshQueryFilter{agentTypeID=prefab.GetComponent<NavMeshAgent>().agentTypeID,areaMask=NavMesh.AllAreas};
             if(!NavMesh.SamplePosition(arrivalPoint,out var hit,2,filter)){Debug.LogWarning("No guest NavMesh at arrival point.",this);return null;}
             var guest=Instantiate(prefab,hit.position,Quaternion.Euler(0,180,0),transform);
+            HotelCorrectedCharacter.ApplyCustomerLook(guest.GetComponentInChildren<HotelGuestVisual>(true), guestSerial);
             guests.Add(guest);guest.Initialize(this,Names[guestSerial%Names.Length]+" "+(guestSerial/Names.Length+1));guestSerial++;return guest;
         }
         public int QueuePosition(HotelGuestBot guest)=>queue.IndexOf(guest);
@@ -132,8 +133,10 @@ namespace HotelTogether
         }
         void UpdateLighting()
         {
-            float transition=IsNight?Mathf.SmoothStep(0,1,Mathf.Clamp01((elapsed-daySeconds)/8)):1-Mathf.SmoothStep(0,1,Mathf.Clamp01(elapsed/8));
-            if(DayNumber==1&&!IsNight)transition=0;
+            // Dusk starts before the zombie wave; dawn reverses when the next day begins.
+            float transition=DayNumber>1&&elapsed<18
+                ? 1-Mathf.SmoothStep(0,1,Mathf.Clamp01(elapsed/18))
+                : Mathf.SmoothStep(0,1,Mathf.Clamp01((elapsed-(daySeconds-25))/35));
             if(sun){sun.intensity=Mathf.Lerp(sunIntensity,.18f,transition);sun.color=Color.Lerp(sunColor,new Color(.40f,.52f,.82f),transition);sun.transform.rotation=Quaternion.Slerp(sunRotation,Quaternion.Euler(35,-40,0),transition);}
             RenderSettings.ambientIntensity=Mathf.Lerp(ambientIntensity,.35f,transition);RenderSettings.ambientLight=Color.Lerp(ambientColor,new Color(.12f,.17f,.28f),transition);
             if(!cityBackground&&Time.time>=backgroundSearch)
@@ -145,7 +148,12 @@ namespace HotelTogether
                     if(renderer.sharedMaterial&&renderer.sharedMaterial.shader.name=="HotelTogether/City Skydome")
                     {cityBackground=renderer;cityExposure=renderer.sharedMaterial.GetFloat("_Exposure");originalBackground=new MaterialPropertyBlock();renderer.GetPropertyBlock(originalBackground);nightBackground=new MaterialPropertyBlock();renderer.GetPropertyBlock(nightBackground);break;}
             }
-            if(cityBackground){nightBackground.SetFloat("_Exposure",Mathf.Lerp(cityExposure,.07f,transition));cityBackground.SetPropertyBlock(nightBackground);}
+            if(cityBackground)
+            {
+                nightBackground.SetFloat("_NightBlend",transition);
+                nightBackground.SetFloat("_Exposure",Mathf.Lerp(cityExposure,cityExposure*.85f,transition));
+                cityBackground.SetPropertyBlock(nightBackground);
+            }
         }
         void OnDestroy()
         {

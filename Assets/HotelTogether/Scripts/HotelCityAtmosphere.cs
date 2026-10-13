@@ -9,6 +9,7 @@ namespace HotelTogether
     public sealed class HotelCityAtmosphere : MonoBehaviour
     {
         public Texture2D cityPanorama;
+        public Texture2D cityPanoramaNight;
         public Shader domeShader;
         public Light sunlight;
         public Material windowGlass;
@@ -24,7 +25,7 @@ namespace HotelTogether
 
         Mesh domeMesh;
         Material domeMaterial;
-        GameObject dome, garden;
+        GameObject dome, garden, placedTrees;
         readonly List<Mesh> gardenMeshes=new List<Mesh>();
         readonly List<Material> gardenMaterials=new List<Material>();
         bool captured, refreshRequested;
@@ -38,6 +39,7 @@ namespace HotelTogether
         AmbientMode previousAmbient;
         readonly Dictionary<GameObject,bool> hiddenBuildings = new Dictionary<GameObject,bool>();
         readonly Dictionary<Renderer,Material[]> originalGlass = new Dictionary<Renderer,Material[]>();
+        readonly Dictionary<Renderer,bool> hiddenTreeRenderers = new Dictionary<Renderer,bool>();
         readonly Dictionary<Camera,float> cameraDistances = new Dictionary<Camera,float>();
 
         void OnEnable() { Apply(); }
@@ -51,6 +53,7 @@ namespace HotelTogether
         public void Apply()
         {
             if (!cityPanorama) cityPanorama=Resources.Load<Texture2D>("HotelTogetherEnvironment/CityPanorama");
+            if (!cityPanoramaNight) cityPanoramaNight=Resources.Load<Texture2D>("HotelTogetherEnvironment/CityPanoramaNight");
             if (!domeShader) domeShader=Resources.Load<Shader>("HotelTogetherEnvironment/HotelCityDome");
             if (!cityPanorama || !domeShader) return;
             if (!sunlight) sunlight=RenderSettings.sun;
@@ -74,6 +77,7 @@ namespace HotelTogether
                 builtRadius=radius;builtHorizon=horizonOffset;
                 domeMaterial=new Material(domeShader){name="Illustrated city sky",hideFlags=HideFlags.HideAndDontSave};
                 domeMaterial.SetTexture("_MainTex",cityPanorama);
+                domeMaterial.SetTexture("_NightTex",cityPanoramaNight ? cityPanoramaNight : cityPanorama);
                 var renderer=dome.AddComponent<MeshRenderer>();renderer.sharedMaterial=domeMaterial;
                 renderer.shadowCastingMode=ShadowCastingMode.Off;renderer.receiveShadows=false;
                 renderer.lightProbeUsage=LightProbeUsage.Off;renderer.reflectionProbeUsage=ReflectionProbeUsage.Off;
@@ -81,6 +85,8 @@ namespace HotelTogether
             if(!Mathf.Approximately(builtRadius,radius) || !Mathf.Approximately(builtHorizon,horizonOffset))
             { Release(domeMesh);dome.GetComponent<MeshFilter>().sharedMesh=domeMesh=BuildSphere();builtRadius=radius;builtHorizon=horizonOffset; }
             dome.transform.position=cityCentre;dome.transform.rotation=Quaternion.Euler(0,skylineRotation,0);
+            domeMaterial.SetTexture("_MainTex",cityPanorama);
+            domeMaterial.SetTexture("_NightTex",cityPanoramaNight ? cityPanoramaNight : cityPanorama);
             domeMaterial.SetFloat("_Exposure",backdropBrightness);
             if(sunlight)
             {
@@ -104,7 +110,75 @@ namespace HotelTogether
                 }
             ClearExteriorGlazing();
             if(landscapedGround && !garden) BuildGarden();
+            if(!placedTrees) BuildPlacedTrees();
             ExtendCameraClips();
+        }
+
+        void BuildPlacedTrees()
+        {
+            var prefab=Resources.Load<GameObject>("HotelTogetherEnvironment/CartoonTree");
+            if(!prefab)return;
+            placedTrees=new GameObject("Hotel cartoon tree placements");
+            placedTrees.hideFlags=HideFlags.DontSave;
+            placedTrees.transform.SetParent(transform,false);
+
+            var parking=GameObject.Find("Hotel front parking and arrival court");
+            if(parking && !HasTree(parking.transform,"Cartoon tree"))
+            {
+                HideTreePart(parking.transform.Find("Parking Parking tree bark"));
+                HideTreePart(parking.transform.Find("Parking Parking sunlit foliage"));
+                AddPlacedTree(prefab,"Cartoon parking tree",new Vector3(-11,0,20.25f),.93f,true);
+                AddPlacedTree(prefab,"Cartoon parking tree",new Vector3(13,0,20.25f),.93f,true);
+                AddPlacedTree(prefab,"Cartoon parking tree",new Vector3(-8.5f,0,31.75f),.93f,true);
+                AddPlacedTree(prefab,"Cartoon parking tree",new Vector3(10.5f,0,31.75f),.93f,true);
+                foreach(float x in new[]{-30.4f,32.4f})foreach(float z in new[]{24f,34f})
+                    AddPlacedTree(prefab,"Cartoon parking tree",new Vector3(x,0,z),.93f,true);
+                AddPlacedTree(prefab,"Cartoon parking tree",new Vector3(-4.8f,0,43),.744f,true);
+                AddPlacedTree(prefab,"Cartoon parking tree",new Vector3(6.8f,0,43),.744f,true);
+            }
+
+            var rooftop=GameObject.Find("Hotel furnished rooftop");
+            if(rooftop && !HasTree(rooftop.transform,"Cartoon planter tree"))
+            {
+                foreach(var renderer in rooftop.GetComponentsInChildren<MeshRenderer>(true))
+                    if(renderer.name=="Rooftop light foliage")HideTreePart(renderer.transform);
+                foreach(var position in new[]{
+                    new Vector3(16.8f,9.615f,-29.6f),new Vector3(25.5f,9.615f,-29.6f),
+                    new Vector3(2.6f,9.615f,-26),new Vector3(11.7f,9.615f,-26),
+                    new Vector3(27.2f,9.615f,-19),new Vector3(15,9.615f,5.9f),
+                    new Vector3(-25.8f,9.615f,5.4f),new Vector3(-25.8f,9.615f,-21),
+                    new Vector3(-7.5f,9.615f,-14),new Vector3(-.5f,9.615f,-14)})
+                    AddPlacedTree(prefab,"Cartoon planter tree",position,0,false);
+            }
+        }
+
+        static bool HasTree(Transform root,string name)
+        {
+            foreach(Transform child in root)if(child.name==name)return true;
+            foreach(var child in root.GetComponentsInChildren<Transform>(true))if(child.name==name)return true;
+            return false;
+        }
+
+        void HideTreePart(Transform part)
+        {
+            if(!part)return;
+            var renderer=part.GetComponent<MeshRenderer>();
+            if(!renderer || hiddenTreeRenderers.ContainsKey(renderer))return;
+            hiddenTreeRenderers.Add(renderer,renderer.enabled);
+            renderer.enabled=false;
+        }
+
+        void AddPlacedTree(GameObject prefab,string name,Vector3 position,float uniformScale,bool trunkCollider)
+        {
+            var tree=Instantiate(prefab,position,Quaternion.Euler(0,Mathf.Repeat(position.x*67+position.z*31,360),0),placedTrees.transform);
+            tree.name=name;
+            tree.transform.localScale=uniformScale>0?Vector3.one*uniformScale:new Vector3(.35f,.45f,.35f);
+            tree.hideFlags=HideFlags.DontSave;
+            if(trunkCollider)
+            {
+                var collider=tree.AddComponent<CapsuleCollider>();
+                collider.center=new Vector3(0,1.3f,0);collider.height=2.6f;collider.radius=.28f;
+            }
         }
 
         void ClearExteriorGlazing()
@@ -133,8 +207,8 @@ namespace HotelTogether
         void BuildGarden()
         {
             garden=new GameObject("Landscaped hotel grounds");garden.hideFlags=HideFlags.DontSave;garden.transform.SetParent(transform,false);
-            var sphere=GardenSphere();var temp=GameObject.CreatePrimitive(PrimitiveType.Cylinder);var cylinder=temp.GetComponent<MeshFilter>().sharedMesh;DestroyImmediate(temp);
-            temp=GameObject.CreatePrimitive(PrimitiveType.Cube);var cube=temp.GetComponent<MeshFilter>().sharedMesh;DestroyImmediate(temp);
+            var treePrefab=Resources.Load<GameObject>("HotelTogetherEnvironment/CartoonTree");
+            var sphere=GardenSphere();var temp=GameObject.CreatePrimitive(PrimitiveType.Cube);var cube=temp.GetComponent<MeshFilter>().sharedMesh;DestroyImmediate(temp);
             var pieces=new List<CombineInstance>[6];for(int i=0;i<pieces.Length;i++)pieces[i]=new List<CombineInstance>();
             bool parkingCourt=false;foreach(var sceneRoot in gameObject.scene.GetRootGameObjects()) if(sceneRoot.name=="Hotel front parking and arrival court") {parkingCourt=true;break;}
             var colors=new[]{new Color(.40f,.55f,.30f),new Color(.43f,.28f,.14f),new Color(.25f,.44f,.25f),new Color(.39f,.57f,.29f),new Color(.53f,.65f,.34f),new Color(.72f,.67f,.53f)};
@@ -147,12 +221,12 @@ namespace HotelTogether
                 float angle=i*Mathf.PI*2/68;
                 var position=new Vector3(1+Mathf.Cos(angle)*(69+(float)random.NextDouble()*8),0,-13+Mathf.Sin(angle)*(70+(float)random.NextDouble()*8));
                 if(parkingCourt && Mathf.Abs(position.x-1)<8 && position.z>30)continue;
-                GardenTree(pieces,sphere,cylinder,position,1+(float)random.NextDouble()*.45f,i);
+                GardenTree(treePrefab,position,1+(float)random.NextDouble()*.45f,i);
             }
             for(int i=-6;i<=6;i++)
             {
                 if(i==0 || (parkingCourt && Mathf.Abs(1+i*10)<35))continue;
-                GardenTree(pieces,sphere,cylinder,new Vector3(1+i*10,0,29+Mathf.Abs(i)*1.4f),.90f+(float)random.NextDouble()*.22f,i+12);
+                GardenTree(treePrefab,new Vector3(1+i*10,0,29+Mathf.Abs(i)*1.4f),.90f+(float)random.NextDouble()*.22f,i+12);
             }
             for(int i=-25;i<=25;i++)
             {
@@ -161,6 +235,7 @@ namespace HotelTogether
             }
             for(int i=0;i<pieces.Length;i++)
             {
+                if(pieces[i].Count==0)continue;
                 var mesh=new Mesh{name="Hotel park geometry",hideFlags=HideFlags.HideAndDontSave,indexFormat=IndexFormat.UInt32};mesh.CombineMeshes(pieces[i].ToArray(),true,true);gardenMeshes.Add(mesh);
                 var material=new Material(shader){name="Hotel garden colour",hideFlags=HideFlags.HideAndDontSave};material.SetColor("_BaseColor",colors[i]);material.SetFloat("_Smoothness",.12f);gardenMaterials.Add(material);
                 var part=new GameObject(new[]{"Meadow lawn","Tree trunks","Deep green foliage","Soft green foliage","Sunlit foliage","Garden entrance path"}[i]);part.hideFlags=HideFlags.DontSave;part.transform.SetParent(garden.transform,false);
@@ -170,12 +245,13 @@ namespace HotelTogether
         }
         static void AddGardenPiece(List<CombineInstance> list,Mesh mesh,Vector3 position,Vector3 scale)
         {list.Add(new CombineInstance{mesh=mesh,transform=Matrix4x4.TRS(position,Quaternion.identity,scale)});}
-        static void GardenTree(List<CombineInstance>[] pieces,Mesh sphere,Mesh trunk,Vector3 position,float size,int variation)
+        void GardenTree(GameObject prefab,Vector3 position,float size,int variation)
         {
-            AddGardenPiece(pieces[1],trunk,position+Vector3.up*1.7f*size,new Vector3(.34f,1.7f,.34f)*size);
-            AddGardenPiece(pieces[2+variation%3],sphere,position+new Vector3(0,4.1f,0)*size,new Vector3(3.4f,3.3f,3.3f)*size);
-            AddGardenPiece(pieces[2+(variation+1)%3],sphere,position+new Vector3(-1.1f,3.6f,.15f)*size,new Vector3(2.4f,2.5f,2.6f)*size);
-            AddGardenPiece(pieces[2+(variation+2)%3],sphere,position+new Vector3(1.1f,3.8f,.35f)*size,new Vector3(2.2f,2.7f,2.3f)*size);
+            if(!prefab)return;
+            var tree=Instantiate(prefab,position,Quaternion.Euler(0,Mathf.Repeat(variation*137.5f,360),0),garden.transform);
+            tree.name="Cartoon garden tree";
+            tree.transform.localScale=Vector3.one*size;
+            tree.hideFlags=HideFlags.DontSave;
         }
         static Mesh GardenSphere()
         {
@@ -229,7 +305,10 @@ namespace HotelTogether
             foreach(var entry in hiddenBuildings) if(entry.Key) entry.Key.SetActive(entry.Value);
             foreach(var entry in cameraDistances) if(entry.Key) entry.Key.farClipPlane=entry.Value;
             foreach(var entry in originalGlass) if(entry.Key) entry.Key.sharedMaterials=entry.Value;
+            foreach(var entry in hiddenTreeRenderers)if(entry.Key)entry.Key.enabled=entry.Value;
+            hiddenTreeRenderers.Clear();
             originalGlass.Clear();
+            Release(placedTrees);placedTrees=null;
             Release(garden);garden=null;
             foreach(var mesh in gardenMeshes) Release(mesh);gardenMeshes.Clear();
             foreach(var material in gardenMaterials) Release(material);gardenMaterials.Clear();

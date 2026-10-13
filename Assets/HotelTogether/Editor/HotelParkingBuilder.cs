@@ -14,6 +14,7 @@ public static class HotelParkingBuilder
     public const string RootName="Hotel front parking and arrival court";
     static Transform root;
     static Mesh cube,sphere,cylinder;
+    static GameObject treePrefab;
     static readonly Dictionary<Material,List<CombineInstance>> batches=new();
     static Material asphalt,stone,white,blue,grass,leaf,leafLight,bark,dark,metal,glass,red,glow,headlamp;
     static Material Mat(string name,Color color,float smooth=.2f,float metallic=0)
@@ -93,7 +94,15 @@ public static class HotelParkingBuilder
     static void Line(Vector3 a,Vector3 b,float width=.10f){var delta=b-a;Box(white,(a+b)*.5f,new Vector3(width,.008f,delta.magnitude),Mathf.Atan2(delta.x,delta.z)*Mathf.Rad2Deg);}
     static void Shrub(float x,float z,float s=.8f){Piece(leaf,sphere,new Vector3(x,.37f,z),new Vector3(s,.65f,s),Quaternion.identity);}
     static void Tree(float x,float z,float size=1)
-    {Piece(bark,cylinder,new Vector3(x,1.55f*size,z),new Vector3(.28f,1.55f,.28f)*size,Quaternion.identity);Piece(leaf,sphere,new Vector3(x,3.7f*size,z),new Vector3(2.7f,2.8f,2.7f)*size,Quaternion.identity);Piece(leafLight,sphere,new Vector3(x-.7f*size,3.2f*size,z+.2f),new Vector3(2,2.2f,2)*size,Quaternion.identity);}
+    {
+        var tree=(GameObject)PrefabUtility.InstantiatePrefab(treePrefab);
+        tree.name="Cartoon tree";
+        tree.transform.SetParent(root,false);
+        tree.transform.localPosition=new Vector3(x,0,z);
+        tree.transform.localRotation=Quaternion.Euler(0,Mathf.Repeat(x*67+z*31,360),0);
+        tree.transform.localScale=Vector3.one*(.93f*size);
+        var collider=tree.AddComponent<CapsuleCollider>();collider.center=new Vector3(0,1.3f,0);collider.height=2.6f;collider.radius=.28f;
+    }
     static void Island(float x,float z,float width,float depth,bool tree=true)
     {Box(stone,new Vector3(x,.04f,z),new Vector3(width,.16f,depth));Box(grass,new Vector3(x,.125f,z),new Vector3(width-.30f,.025f,depth-.30f));for(float px=x-width*.5f+.6f;px<x+width*.5f-.4f;px+=1.2f){Shrub(px,z-depth*.5f+.6f);Shrub(px,z+depth*.5f-.6f);}if(tree)Tree(x,z,.8f);}
     static void Bollard(float x,float z)
@@ -124,6 +133,7 @@ public static class HotelParkingBuilder
     public static void Apply()
     {
         if(EditorApplication.isPlayingOrWillChangePlaymode)throw new InvalidOperationException("Exit Play Mode first.");var scene=UnityEngine.SceneManagement.SceneManager.GetActiveScene();if(scene.name!="HotelLobby")throw new InvalidOperationException("Open HotelLobby first.");Directory.CreateDirectory(Art);string backup=Path.GetFullPath("../tmp/parking/HotelLobby-before-parking.unity");if(!File.Exists(backup))EditorSceneManager.SaveScene(scene,backup,true);
+        treePrefab=AssetDatabase.LoadAssetAtPath<GameObject>(HotelTreeModelBuilder.PrefabPath);if(!treePrefab)throw new InvalidOperationException("Prepare the cartoon tree model first.");
         Undo.IncrementCurrentGroup();int undo=Undo.GetCurrentGroup();Undo.SetCurrentGroupName("Build hotel front parking");var old=scene.GetRootGameObjects().FirstOrDefault(g=>g.name==RootName);if(old)Undo.DestroyObjectImmediate(old);var group=new GameObject(RootName);root=group.transform;Undo.RegisterCreatedObjectUndo(group,"Parking court");
         cube=Primitive(PrimitiveType.Cube);sphere=Primitive(PrimitiveType.Sphere);cylinder=Primitive(PrimitiveType.Cylinder);batches.Clear();
         asphalt=Mat("Warm charcoal asphalt",new Color(.20f,.22f,.23f),.13f);stone=Mat("Light limestone curbs",new Color(.72f,.68f,.57f));white=Mat("Parking white paint",new Color(.94f,.94f,.87f));blue=Mat("Accessible blue paint",new Color(.10f,.32f,.52f));grass=Mat("Island lawn",new Color(.40f,.55f,.30f));leaf=Mat("Parking deep foliage",new Color(.25f,.44f,.25f));leafLight=Mat("Parking sunlit foliage",new Color(.53f,.65f,.34f));bark=Mat("Parking tree bark",new Color(.43f,.28f,.14f));dark=Mat("Tyres and bollards",new Color(.055f,.065f,.07f));metal=Mat("Wheel alloy",new Color(.53f,.56f,.59f),.65f,.75f);glass=Mat("Car dark blue glass",new Color(.10f,.20f,.26f),.8f,.2f);red=Mat("Rear lights",new Color(.70f,.08f,.045f),.6f);glow=Mat("Warm light lenses",new Color(.97f,.89f,.63f),.6f);glow.EnableKeyword("_EMISSION");glow.SetColor("_EmissionColor",new Color(.5f,.4f,.20f));
