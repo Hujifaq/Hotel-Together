@@ -9,11 +9,25 @@ namespace HotelTogether {
   Coroutine pickupReach;HotelItem pendingPickup;HotelHousekeepingSystem housekeeping;
   public bool IsReachingForItem=>pendingPickup!=null;
   public float ViewPitch=>pitch;
-  void Start(){housekeeping=FindFirstObjectByType<HotelHousekeepingSystem>();combat=GetComponent<HotelCombat>();cc=GetComponent<CharacterController>();Physics.IgnoreLayerCollision(8,9,true);spawn=transform.position;startRotation=transform.rotation;yaw=transform.eulerAngles.y;var hand=new GameObject("Physics grip anchor");anchor=hand.AddComponent<Rigidbody>();anchor.isKinematic=true;anchor.useGravity=false;eyeBase=standingEyeBase=view.transform.localPosition;if(employee)employee.Initialize(this);CreateHands();}
-  public void Notify(string text){message=text;messageUntil=Time.time+3;}
+  HotelGuestSimulation hudHotel;
+  readonly Queue<string> notices=new();
+  string lastNotice;float lastNoticeAt;
+  bool jobsOpen,hudIntroduced,lowHealthNotice,sunsetNotice;
+  int jobsPage,lastGuestCount=-1;
+  void Start(){hudHotel=FindAnyObjectByType<HotelGuestSimulation>();housekeeping=FindFirstObjectByType<HotelHousekeepingSystem>();combat=GetComponent<HotelCombat>();cc=GetComponent<CharacterController>();Physics.IgnoreLayerCollision(8,9,true);spawn=transform.position;startRotation=transform.rotation;yaw=transform.eulerAngles.y;var hand=new GameObject("Physics grip anchor");anchor=hand.AddComponent<Rigidbody>();anchor.isKinematic=true;anchor.useGravity=false;eyeBase=standingEyeBase=view.transform.localPosition;if(employee)employee.Initialize(this);CreateHands();}
+  public void Notify(string text,bool urgent=false){
+   if(string.IsNullOrWhiteSpace(text)||text=="Q  Put down | SPACE  Throw"||text=="E  Stand up"||text=="E  Release cart")return;
+   if(text==message&&Time.unscaledTime<messageUntil||text==lastNotice&&Time.unscaledTime-lastNoticeAt<3||notices.Contains(text))return;
+   lastNotice=text;lastNoticeAt=Time.unscaledTime;
+   if(urgent){notices.Clear();ShowNotice(text);return;}
+   if(Time.unscaledTime>=messageUntil){ShowNotice(text);return;}
+   if(notices.Count>=3)notices.Dequeue();notices.Enqueue(text);
+  }
+  void ShowNotice(string text){message=text;messageUntil=Time.unscaledTime+Mathf.Clamp(2.6f+text.Length*.025f,3.3f,7);}
+  void AdvanceNotices(){if(Time.unscaledTime>=messageUntil&&notices.Count>0)ShowNotice(notices.Dequeue());}
   public void CaptureMouse(){Cursor.lockState=CursorLockMode.Locked;Cursor.visible=false;}
   public void Face(float heading){yaw=heading;pitch=0;transform.rotation=Quaternion.Euler(0,yaw,0);view.transform.localRotation=Quaternion.identity;}
-  void Update(){fps=Mathf.Lerp(fps,1/Mathf.Max(Time.unscaledDeltaTime,.001f),.04f);var k=Keyboard.current;var m=Mouse.current;if(k==null||m==null)return;if(k.escapeKey.wasPressedThisFrame){Cursor.lockState=CursorLockMode.None;Cursor.visible=true;}if(Cursor.lockState!=CursorLockMode.Locked)return;if(transportLocked||combat&&combat.IsDown)return;
+  void Update(){AdvanceNotices();fps=Mathf.Lerp(fps,1/Mathf.Max(Time.unscaledDeltaTime,.001f),.04f);var k=Keyboard.current;var m=Mouse.current;if(k==null||m==null)return;if(k.escapeKey.wasPressedThisFrame){jobsOpen=false;Cursor.lockState=CursorLockMode.None;Cursor.visible=true;}if(Cursor.lockState!=CursorLockMode.Locked)return;UpdateHudState();if(k.jKey.wasPressedThisFrame)jobsOpen=!jobsOpen;if(jobsOpen){if(k.rightArrowKey.wasPressedThisFrame)jobsPage++;if(k.leftArrowKey.wasPressedThisFrame)jobsPage--;}if(transportLocked||combat&&combat.IsDown)return;
    var delta=m.delta.ReadValue()*sensitivity;float newYaw=yaw+delta.x;if(cart)newYaw=Mathf.MoveTowardsAngle(yaw,newYaw,90*Time.deltaTime);pitch=Mathf.Clamp(pitch-delta.y,-80,88);
    float h=(k.dKey.isPressed?1:0)-(k.aKey.isPressed?1:0),v=(k.wKey.isPressed?1:0)-(k.sKey.isPressed?1:0);Vector3 move=Quaternion.Euler(0,newYaw,0)*new Vector3(h,0,v).normalized*(k.leftShiftKey.isPressed?sprint:speed)*Time.deltaTime;
    if(cart&&!ClearCart(transform.position+move,newYaw)){move=Vector3.zero;newYaw=yaw;Notify("The cart is blocked.");}yaw=newYaw;transform.rotation=Quaternion.Euler(0,yaw,0);view.transform.localRotation=Quaternion.Euler(pitch,0,0);
@@ -110,7 +124,7 @@ public bool RequestPickup(HotelItem item){
   public void EndCart(){if(!cart)return;if(activeTrolley)activeTrolley.SetPushing(false);cart.GetComponent<HotelCleaningCart>()?.SetPushing(false);var rb=cart.GetComponent<Rigidbody>();rb.isKinematic=false;rb.linearVelocity=Vector3.zero;foreach(var r in cargo){r.transform.SetParent(cart.transform.parent,true);r.isKinematic=false;}cargo.Clear();cart=null;activeTrolley=null;if(hands)hands.gameObject.SetActive(false);}
   void Sit(HotelItem o){var guests=FindFirstObjectByType<HotelGuestSimulation>();if(guests&&guests.IsSeatOccupied(o)){Notify("This seat is reserved for a guest.");return;}seated=o;cc.enabled=false;transform.position=new Vector3(o.transform.position.x,o.home.y-o.dimensions.y/2+.025f,o.transform.position.z);eyeBase=new Vector3(standingEyeBase.x,o.seatEyeHeight,standingEyeBase.z);view.transform.localPosition=eyeBase;smoothedBob=Vector3.zero;bobWeight=0;Notify("E  Stand up");}
   void Stand(){var s=seated;if(!s)return;Vector3 target=s.transform.position+s.transform.forward*(s.dimensions.z/2+.75f);target.y=transform.position.y;if(Physics.CheckCapsule(target+Vector3.up*.35f,target+Vector3.up*1.35f,.28f,~((1<<8)|(1<<9)),QueryTriggerInteraction.Ignore)){target=s.transform.position-s.transform.forward*(s.dimensions.z/2+.75f);target.y=transform.position.y;}transform.position=target;eyeBase=standingEyeBase;view.transform.localPosition=eyeBase;smoothedBob=Vector3.zero;bobWeight=0;cc.enabled=true;vertical=0;seated=null;}
-  public void ResetWorld(){transportLocked=false;foreach(var elevator in FindObjectsByType<HotelElevator>(FindObjectsSortMode.None))elevator.ResetElevator();foreach(var lift in FindObjectsByType<HotelServiceLift>(FindObjectsSortMode.None))lift.ResetLift();Drop();EndCart();seated=null;cc.enabled=false;transform.SetPositionAndRotation(spawn,startRotation);eyeBase=standingEyeBase;view.transform.localPosition=eyeBase;smoothedBob=Vector3.zero;bobWeight=0;pitch=0;yaw=startRotation.eulerAngles.y;cc.enabled=true;foreach(var o in FindObjectsByType<HotelItem>(FindObjectsSortMode.None))o.ResetItem();Physics.SyncTransforms();FindFirstObjectByType<HotelGuestSimulation>()?.ResetSimulation();FindFirstObjectByType<HotelZombieDirector>()?.ResetDefense();Notify("Fresh start!");}
+  public void ResetWorld(){notices.Clear();messageUntil=0;message=null;lastNotice=null;jobsOpen=false;jobsPage=0;lastGuestCount=-1;sunsetNotice=lowHealthNotice=false;transportLocked=false;foreach(var elevator in FindObjectsByType<HotelElevator>(FindObjectsSortMode.None))elevator.ResetElevator();foreach(var lift in FindObjectsByType<HotelServiceLift>(FindObjectsSortMode.None))lift.ResetLift();Drop();EndCart();seated=null;cc.enabled=false;transform.SetPositionAndRotation(spawn,startRotation);eyeBase=standingEyeBase;view.transform.localPosition=eyeBase;smoothedBob=Vector3.zero;bobWeight=0;pitch=0;yaw=startRotation.eulerAngles.y;cc.enabled=true;foreach(var o in FindObjectsByType<HotelItem>(FindObjectsSortMode.None))o.ResetItem();Physics.SyncTransforms();FindFirstObjectByType<HotelGuestSimulation>()?.ResetSimulation();FindFirstObjectByType<HotelZombieDirector>()?.ResetDefense();Notify("Fresh start!");}
   void Bell(){bellCount++;var clip=AudioClip.Create("Reception bell",24000,1,24000,false);var samples=new float[24000];for(int i=0;i<samples.Length;i++){float t=i/24000f;samples[i]=Mathf.Sin(2*Mathf.PI*1568*t)*.15f*Mathf.Exp(-t*7);}clip.SetData(samples,0);AudioSource.PlayClipAtPoint(clip,focused.transform.position,.7f);Destroy(clip,2);Notify("Ding! Someone will be right with you.");}
   [Header("First-person feel")]
   public bool walkingCameraBob=true;
@@ -245,6 +259,7 @@ public bool RequestPickup(HotelItem item){
   readonly Color uiBrown=new Color(.36f,.20f,.13f),uiCream=new Color(1,.94f,.79f),uiCreamBottom=new Color(1,.84f,.59f),uiBlue=new Color(.22f,.84f,.97f),uiBlueBottom=new Color(.02f,.52f,.82f),uiOrange=new Color(1,.66f,.28f),uiOrangeBottom=new Color(.98f,.37f,.12f);
   readonly Dictionary<string,Texture2D> uiSurfaces=new();
   GUIStyle uiTitle,uiAction,uiSmall,uiKey,uiToast,uiBrand,uiHeading,uiButton,uiSecondary;
+  GUIStyle hudTitle,hudBody,hudCaption,hudNumber,hudWhite;
   float uiOpacity;string uiLastName,uiLastAction,uiLastDoor;bool uiLastHolding;bool uiOwnFont;
   readonly GUIContent uiNameContent=new(),uiActionContent=new(),uiKeyContent=new();
 
@@ -259,6 +274,8 @@ public bool RequestPickup(HotelItem item){
    uiToast=Style(22,uiBrown,TextAnchor.MiddleCenter);uiToast.wordWrap=true;
    uiBrand=Style(18,Color.white,TextAnchor.MiddleCenter);uiHeading=Style(50,Color.white,TextAnchor.MiddleCenter);
    uiButton=Style(30,Color.white,TextAnchor.MiddleCenter);uiSecondary=Style(26,Color.white,TextAnchor.MiddleCenter);
+   hudTitle=Style(22,uiBrown);hudBody=Style(18,uiBrown);hudBody.wordWrap=true;
+   hudCaption=Style(16,uiBrown);hudNumber=Style(26,uiBrown,TextAnchor.MiddleRight);hudWhite=Style(24,Color.white,TextAnchor.MiddleCenter);
    RefreshUiStyles();
   }
   void RefreshUiStyles(){
@@ -348,11 +365,13 @@ public bool RequestPickup(HotelItem item){
     uiNameContent.text=uiLastName;uiTitle.fontSize=30;
     while(uiTitle.fontSize>19&&uiTitle.CalcSize(uiNameContent).x>width-126)uiTitle.fontSize--;
     GUI.Label(new Rect(x+101,y+26,width-122,49),uiNameContent,uiTitle);
-    if(uiLastHolding){
-     float fw=uiLastDoor==null?174:350;var f=new Rect(x+width/2-fw/2,y-68,fw,34);
-     Bubble(f,uiOrange,uiOrangeBottom,13,3);
-     Text(f,uiLastDoor==null?"SPACE  Throw":"SPACE  Throw    E  "+(uiLastDoor=="OPEN DOOR"?"Open door":"Close door"),uiBrand,uiBrown,1);
-    }
+    string hint=null;
+    var opening=focused?focused.GetComponentInParent<HotelDefenseOpening>():null;
+    if(opening)hint=opening.BoardCount+"/4 boards   B Build   N Remove   T Repair";
+    else if(uiLastHolding)hint=held&&held.GetComponent<HotelWeapon>()?"LMB Hit   /   RMB Block":uiLastDoor==null?"SPACE  Throw":"SPACE Throw   /   E "+(uiLastDoor=="OPEN DOOR"?"Open door":"Close door");
+    if(hint!=null)Text(new Rect(x-20,y+106,width+40,23),hint,uiBrand,uiBrown,1.2f);
+    var mess=focused?focused.GetComponent<HotelFloorMess>():null;
+    if(mess&&mess.type==FloorMessType.Wet&&mess.Progress>0){Panel(new Rect(x+101,y+85,width-126,4),new Color(.36f,.20f,.13f,.2f),2);Rule(new Rect(x+101,y+85,(width-126)*mess.Progress,4),uiBlueBottom);}
    }
    if(visible&&HasInteraction(focused)&&!seated&&!cart){
     float s=held?4:6;Panel(new Rect(safe.center.x-s-2,safe.center.y-s-2,s*2+4,s*2+4),uiBrown,8);
@@ -361,9 +380,105 @@ public bool RequestPickup(HotelItem item){
   }
   struct UiAlphaScope:System.IDisposable{Color old;public UiAlphaScope(float alpha){old=GUI.contentColor;GUI.contentColor=new Color(1,1,1,alpha);}public void Dispose(){GUI.contentColor=old;}}
   void DrawNotice(Rect safe){
-   if(Time.time>=messageUntil||string.IsNullOrWhiteSpace(message)||message=="Q  Put down | SPACE  Throw"||message=="E  Stand up"||message=="E  Release cart")return;
-   float width=Mathf.Min(460,safe.width-40);var r=new Rect(safe.center.x-width/2,safe.y+28,width,58);
-   using(new UiAlphaScope(Mathf.Min(1,(messageUntil-Time.time)*3))){Bubble(r,uiCream,uiCreamBottom,17,4);GUI.Label(Inset(r,9),message,uiToast);}
+   if(Time.unscaledTime>=messageUntil||string.IsNullOrWhiteSpace(message))return;
+   float width=Mathf.Min(460,safe.width-48);
+   float height=Mathf.Clamp(uiToast.CalcHeight(new GUIContent(message),width-32)+26,60,130);
+   float top=safe.width<1080?96:24;
+   var r=new Rect(safe.center.x-width/2,safe.y+top,width,height);
+   using(new UiAlphaScope(Mathf.Min(1,(messageUntil-Time.unscaledTime)*3))){Bubble(r,uiCream,uiCreamBottom,17,4);GUI.Label(Inset(r,13),message,uiToast);}
+  }
+  void UpdateHudState(){
+   if(!hudHotel)return;
+   if(!hudIntroduced){hudIntroduced=true;Notify("Welcome to your shift! J opens jobs and task help.");}
+   int count=hudHotel.Guests.Count;
+   if(lastGuestCount>=0&&count>lastGuestCount)Notify(count-lastGuestCount==1?"A new guest is waiting at reception.":"New guests are waiting at reception.");
+   lastGuestCount=count;
+   if(!hudHotel.IsNight&&hudHotel.PeriodRemaining<=30&&!sunsetNotice){sunsetNotice=true;Notify("Night in 30 seconds. Protect your guests!",true);}
+   if(hudHotel.IsNight)sunsetNotice=false;
+   if(combat&&combat.Human){bool low=combat.Human.Health<=30&&!combat.IsDown;if(low&&!lowHealthNotice)Notify(combat.Medicine>0?"Health low! H to use medicine.":"Health low! Find a first-aid cabinet.",true);lowHealthNotice=low;}
+  }
+  void DrawHud(Rect safe){
+   if(!hudHotel)return;
+   var day=new Rect(safe.x+24,safe.y+24,238,60);
+   Bubble(day,uiCream,uiCreamBottom,17,3);
+   GUI.Label(new Rect(day.x+16,day.y+6,128,25),"DAY "+hudHotel.DayNumber,hudTitle);
+   string period=hudHotel.IsNight?"NIGHT":"DAYTIME";
+   var defense=combat?combat.Director:null;
+   if(hudHotel.IsNight&&defense)period+="  /  "+defense.ActiveCount+" ALIVE";
+   GUI.Label(new Rect(day.x+16,day.y+32,140,18),period,hudCaption);
+   Rule(new Rect(day.x+154,day.y+13,1,34),new Color(uiBrown.r,uiBrown.g,uiBrown.b,.2f));
+   int seconds=Mathf.CeilToInt(hudHotel.PeriodRemaining);
+   GUI.Label(new Rect(day.x+164,day.y+12,60,35),$"{seconds/60:0}:{seconds%60:00}",hudNumber);
+   int pending=hudHotel.serviceJobs?hudHotel.serviceJobs.PendingCount:0;
+   var jobs=new Rect(safe.xMax-184,safe.y+24,160,54);
+   Bubble(jobs,jobsOpen?Color.white:uiCream,jobsOpen?uiCream:uiCreamBottom,17,3);
+   Panel(new Rect(jobs.x+9,jobs.y+9,34,34),uiBlue,uiBlueBottom,9);
+   Text(new Rect(jobs.x+9,jobs.y+9,34,32),"J",hudWhite,uiBrown,1);
+   GUI.Label(new Rect(jobs.x+52,jobs.y+10,100,34),jobsOpen?"CLOSE":pending+" JOBS",hudTitle);
+   DrawVitals(safe);
+   if(jobsOpen)DrawJobNotes(safe);
+  }
+  void DrawVitals(Rect safe){
+   if(!combat||!combat.Human)return;
+   bool night=hudHotel&&hudHotel.IsNight;
+   if(!night&&combat.Human.Health>=combat.Human.maxHealth&&combat.Stamina>=99)return;
+   var r=new Rect(safe.x+24,safe.yMax-108,224,84);
+   Bubble(r,uiCream,uiCreamBottom,17,3);
+   GUI.Label(new Rect(r.x+14,r.y+9,154,21),"HEALTH",hudCaption);
+   GUI.Label(new Rect(r.x+164,r.y+6,44,24),Mathf.CeilToInt(combat.Human.Health).ToString(),hudNumber);
+   Panel(new Rect(r.x+14,r.y+33,194,6),new Color(.40f,.26f,.16f,.22f),3);
+   Rule(new Rect(r.x+14,r.y+33,194*Mathf.Clamp01(combat.Human.Health/Mathf.Max(1,combat.Human.maxHealth)),6),combat.Human.Health<=30?uiOrangeBottom:new Color(.20f,.64f,.44f));
+   GUI.Label(new Rect(r.x+14,r.y+44,194,20),"ENERGY",hudCaption);
+   Panel(new Rect(r.x+14,r.y+65,194,5),new Color(.40f,.26f,.16f,.22f),2);
+   Rule(new Rect(r.x+14,r.y+65,194*Mathf.Clamp01(combat.Stamina/100),5),uiBlueBottom);
+  }
+  void DrawJobNotes(Rect safe){
+   var jobs=hudHotel.serviceJobs;
+   float width=Mathf.Min(438,safe.width-48),height=Mathf.Min(700,safe.height-150);
+   var r=new Rect(safe.xMax-width-24,safe.y+96,width,height);
+   Bubble(r,uiCream,uiCreamBottom,22,5);
+   Bubble(new Rect(r.x+10,r.y+10,r.width-20,48),uiBlue,uiBlueBottom,14,3);
+   Text(new Rect(r.x+24,r.y+10,r.width-48,48),"SHIFT NOTES",uiAction,uiBrown,1);
+   GUI.Label(new Rect(r.x+20,r.y+71,r.width-40,25),hudHotel.Guests.Count+" guests  /  $"+hudHotel.Tips+" tips  /  "+(jobs?jobs.Completed:0)+" jobs done",hudCaption);
+   float y=r.y+107;
+   if(jobs&&jobs.housekeeping&&jobs.housekeeping.Pending>0){GUI.Label(new Rect(r.x+20,y,r.width-40,25),"Housekeeping  /  "+jobs.housekeeping.Pending+" spots",hudTitle);y+=36;}
+   const int perPage=2;int count=hudHotel.Guests.Count,pages=Mathf.Max(1,(count+perPage-1)/perPage);
+   jobsPage=(jobsPage%pages+pages)%pages;
+   for(int i=jobsPage*perPage;i<Mathf.Min(count,(jobsPage+1)*perPage);i++){
+    var guest=hudHotel.Guests[i];if(!guest)continue;
+    var row=new Rect(r.x+14,y,r.width-28,94);Panel(row,new Color(1,.98f,.90f),13);
+    Panel(new Rect(row.x+9,row.y+12,4,70),guest.Need==GuestNeed.None?new Color(.30f,.67f,.49f):uiBlueBottom,2);
+    string name=guest.guestName+(guest.CheckedIn?"  /  ROOM "+guest.RoomLabel:"");
+    GUI.Label(new Rect(row.x+23,row.y+7,row.width-35,25),name,hudTitle);
+    GUI.Label(new Rect(row.x+23,row.y+34,row.width-35,21),guest.Need!=GuestNeed.None?guest.NeedLabel:guest.StatusLabel,hudCaption);
+    if(jobs){GUI.Label(new Rect(row.x+23,row.y+55,row.width-35,18),jobs.LuggageStatus(guest),hudCaption);GUI.Label(new Rect(row.x+23,row.y+74,row.width-35,18),jobs.LaundryStatus(guest),hudCaption);}
+    y+=104;
+   }
+   if(count==0){GUI.Label(new Rect(r.x+20,y,r.width-40,28),"No guest requests yet",hudTitle);y+=42;}
+   if(jobs){
+    var guide=jobs.Guide;
+    if(!string.IsNullOrEmpty(guide.title)){
+     Rule(new Rect(r.x+20,y+3,r.width-40,1),new Color(uiBrown.r,uiBrown.g,uiBrown.b,.20f));y+=15;
+     GUI.Label(new Rect(r.x+20,y,r.width-40,20),"TASK HELP",hudCaption);y+=23;
+     float titleHeight=hudBody.CalcHeight(new GUIContent(guide.title),r.width-40);
+     GUI.Label(new Rect(r.x+20,y,r.width-40,titleHeight),guide.title,hudBody);y+=titleHeight+6;
+     if(guide.target.HasValue){GUI.Label(new Rect(r.x+20,y,r.width-40,22),HotelServiceGuidance.Direction(hudHotel,guide.target.Value).Replace("DESTINATION: ",""),hudCaption);y+=28;}
+     float available=Mathf.Max(20,r.yMax-89-y);
+     float stepHeight=Mathf.Min(available,hudBody.CalcHeight(new GUIContent(guide.steps??""),r.width-40));
+     GUI.Label(new Rect(r.x+20,y,r.width-40,stepHeight),guide.steps,hudBody);y+=stepHeight+9;
+     if(!string.IsNullOrEmpty(guide.manifest))GUI.Label(new Rect(r.x+20,y,r.width-40,Mathf.Max(20,r.yMax-57-y)),guide.manifest,hudBody);
+    }
+   }
+   string footer="LEFT / RIGHT  "+(jobsPage+1)+" / "+pages+"     J  Close";
+   if(hudHotel.IsNight&&combat){GUI.Label(new Rect(r.x+20,r.yMax-72,r.width-40,22),"Wood "+combat.Wood+"  /  Medicine "+combat.Medicine+"  /  F Bat  /  H Heal",hudCaption);}
+   GUI.Label(new Rect(r.x+20,r.yMax-39,r.width-40,25),footer,hudCaption);
+  }
+  void DrawDowned(Rect safe){
+   var r=new Rect(safe.center.x-215,safe.center.y-74,430,148);
+   Bubble(r,uiCream,uiCreamBottom,24,6);
+   Bubble(new Rect(r.x+12,r.y+12,r.width-24,50),uiOrange,uiOrangeBottom,14,3);
+   Text(new Rect(r.x+12,r.y+12,r.width-24,50),"YOU'RE DOWN",uiAction,uiBrown,1);
+   GUI.Label(new Rect(r.x+20,r.y+80,r.width-40,44),combat.Human.Dead||combat.Medicine<=0?"R  Start over":"H  Use medicine     R  Start over",uiToast);
   }
   void Star(Vector2 center,float radius){
    // A tiny four-point sparkle that does not depend on a symbol font.
@@ -387,7 +502,7 @@ public bool RequestPickup(HotelItem item){
    float bx=r.x+37,bw=r.width-74;
    if(MenuButton(new Rect(bx,r.y+246,bw,66),"LET'S PLAY",true))CaptureMouse();
    if(MenuButton(new Rect(bx,r.y+329,bw,58),"START OVER",false)){ResetWorld();CaptureMouse();}
-   GUI.Label(new Rect(r.x+25,r.y+414,r.width-50,28),"ESC  Menu  |  E  Interact",uiSmall);
+   GUI.Label(new Rect(r.x+25,r.y+414,r.width-50,28),"ESC  Menu  |  E  Interact  |  J  Jobs",uiSmall);
   }
   void DrawEmployeeMenu(Rect safe){
    Rule(safe,new Color(.05f,.15f,.20f,.63f));
@@ -410,8 +525,8 @@ public bool RequestPickup(HotelItem item){
    float bw=(width-74)/2;
    if(MenuButton(new Rect(r.x+26,r.y+525,bw,61),"LET'S PLAY",true))CaptureMouse();
    if(MenuButton(new Rect(r.x+48+bw,r.y+525,bw,61),"START OVER",false)){ResetWorld();CaptureMouse();}
-   GUI.Label(new Rect(r.x+20,r.y+608,width-40,25),"LEFT / RIGHT  Choose  |  ESC  Menu  |  E  Interact",uiSmall);
-   if(Time.time<messageUntil)GUI.Label(new Rect(r.x+20,r.yMax+16,width-40,35),message,uiToast);
+   GUI.Label(new Rect(r.x+20,r.y+608,width-40,25),"LEFT / RIGHT  Choose  |  ESC  Menu  |  J  Jobs",uiSmall);
+   if(Time.unscaledTime<messageUntil)GUI.Label(new Rect(r.x+20,r.yMax+16,width-40,35),message,uiToast);
   }
   bool MenuButton(Rect r,string label,bool primary){
    bool hover=r.Contains(Event.current.mousePosition),press=hover&&GUIUtility.hotControl!=0;var draw=r;if(press)draw.y+=3;
@@ -425,7 +540,7 @@ public bool RequestPickup(HotelItem item){
    float scale=Mathf.Clamp(Mathf.Min(Screen.width/1440f,Screen.height/900f),.45f,2f);
    GUI.matrix=Matrix4x4.TRS(Vector3.zero,Quaternion.identity,Vector3.one*scale);GUI.color=GUI.contentColor=Color.white;
    var a=Screen.safeArea;var safe=new Rect(a.x/scale,(Screen.height-a.yMax)/scale,a.width/scale,a.height/scale);
-   if(Cursor.lockState==CursorLockMode.Locked){DrawInteraction(safe);DrawNotice(safe);}else{uiOpacity=0;DrawMenu(safe);}
+   if(Cursor.lockState==CursorLockMode.Locked){DrawHud(safe);if(combat&&combat.IsDown)DrawDowned(safe);else DrawInteraction(safe);DrawNotice(safe);}else{uiOpacity=0;DrawMenu(safe);}
    GUI.matrix=matrix;GUI.color=color;GUI.contentColor=content;
   }
   public void PlayStrikeGesture(){throwGesture=1;if(employee&&employee.Avatar)employee.Avatar.ThrowGesture();}public void Incapacitate(){Drop();EndCart();if(seated)Stand();eyeBase=new Vector3(standingEyeBase.x,standingEyeBase.y*.55f,standingEyeBase.z);}public void Recover(){if(view){eyeBase=standingEyeBase;view.transform.localPosition=eyeBase;}}

@@ -43,7 +43,6 @@ namespace HotelTogether
         Renderer cityBackground;
         float cityExposure=1,backgroundSearch;
         MaterialPropertyBlock originalBackground,nightBackground;
-        Font font;GUIStyle small,title,request;Texture2D panel;
         static readonly string[] Names={"Milo","Noah","Leo","Theo","Finn","Alex","Jamie","Robin","Sam","Riley","Luca","Avery"};
         void Awake()
         {
@@ -148,33 +147,9 @@ namespace HotelTogether
             }
             if(cityBackground){nightBackground.SetFloat("_Exposure",Mathf.Lerp(cityExposure,.07f,transition));cityBackground.SetPropertyBlock(nightBackground);}
         }
-        void PrepareGui()
-        {
-            if(panel)return;font=Resources.Load<Font>("HotelTogetherUI/LilitaOne-Regular");panel=new Texture2D(1,1);panel.SetPixel(0,0,new Color(.06f,.13f,.18f,.90f));panel.Apply();
-            small=new GUIStyle{font=font,fontSize=17,normal={textColor=new Color(.9f,.94f,.98f)}};
-            title=new GUIStyle(small){fontSize=24};request=new GUIStyle(small){fontSize=18,alignment=TextAnchor.MiddleCenter,normal={textColor=new Color(1,.80f,.33f)}};
-        }
-        void OnGUI()
-        {
-            if(!Running)return;PrepareGui();var previous=GUI.color;var matrix=GUI.matrix;float scale=Mathf.Clamp(Mathf.Min(Screen.width/1200f,Screen.height/700f),.45f,2);GUI.matrix=Matrix4x4.TRS(Vector3.zero,Quaternion.identity,Vector3.one*scale);
-            GUI.DrawTexture(new Rect(18,18,275,91),panel);GUI.Label(new Rect(32,26,250,28),"DAY "+DayNumber+"  /  "+(IsNight?"NIGHT":"DAYTIME"),title);
-            int seconds=Mathf.CeilToInt(PeriodRemaining);GUI.Label(new Rect(32,57,245,24),$"{seconds/60:00}:{seconds%60:00}   Guests {guests.Count}/{maxGuests}",small);GUI.Label(new Rect(32,80,245,22),"Services "+Services+"    Tips $"+Tips,small);
-            float x=Screen.width/scale-335;if(serviceJobs){serviceJobs.DrawBoard(x,panel,title,small);GUI.color=previous;GUI.matrix=matrix;return;}GUI.DrawTexture(new Rect(x,18,317,55+guests.Count*58),panel);GUI.Label(new Rect(x+14,27,290,30),"GUEST SERVICE",title);
-            for(int i=0;i<guests.Count;i++)
-            {
-                var guest=guests[i];if(!guest)continue;float y=65+i*58;GUI.Label(new Rect(x+14,y,290,22),guest.guestName+"   Room "+guest.RoomLabel+"   "+Mathf.RoundToInt(guest.Satisfaction*100)+"%",small);
-                GUI.color=guest.Need!=GuestNeed.None?new Color(1,.80f,.33f):new Color(.67f,.88f,.78f);GUI.Label(new Rect(x+14,y+22,290,24),guest.Need!=GuestNeed.None?guest.NeedLabel+"  "+Mathf.CeilToInt(guest.WaitSeconds)+"s":guest.StatusLabel,small);GUI.color=previous;
-                if(guest.Need!=GuestNeed.None&&player.view)
-                {
-                    var point=player.view.WorldToScreenPoint(guest.transform.position+Vector3.up*2.1f);if(point.z>0&&Vector3.Distance(player.transform.position,guest.transform.position)<22)
-                    {var rect=new Rect(point.x/scale-85,(Screen.height-point.y)/scale-13,170,27);GUI.DrawTexture(rect,panel);GUI.Label(rect,guest.NeedLabel,request);}
-                }
-            }
-            GUI.color=previous;GUI.matrix=matrix;
-        }
         void OnDestroy()
         {
-            if(panel)Destroy(panel);if(sun){sun.intensity=sunIntensity;sun.color=sunColor;sun.transform.rotation=sunRotation;}RenderSettings.ambientIntensity=ambientIntensity;RenderSettings.ambientLight=ambientColor;
+            if(sun){sun.intensity=sunIntensity;sun.color=sunColor;sun.transform.rotation=sunRotation;}RenderSettings.ambientIntensity=ambientIntensity;RenderSettings.ambientLight=ambientColor;
             if(cityBackground)cityBackground.SetPropertyBlock(originalBackground);
         }
     }
