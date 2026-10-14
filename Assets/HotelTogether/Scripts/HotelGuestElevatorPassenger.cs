@@ -21,7 +21,7 @@ namespace HotelTogether
   {
    if(Aboard)return true;if(Active)CancelTravel();var lifts=guest.Hotel.elevators;if(lifts==null||lifts.Length==0)return false;
    HotelElevator best=null;float score=float.PositiveInfinity;
-   foreach(var lift in lifts){if(!lift||!lift.isActiveAndEnabled)continue;int from=lift.FloorFor(transform.position.y),to=lift.FloorFor(destination.y);if(from==to)continue;var path=new NavMeshPath();var point=lift.QueuePoint(from,0);if(!guest.Agent.enabled||!guest.Agent.isOnNavMesh||!guest.Agent.CalculatePath(point,path)||path.status!=NavMeshPathStatus.PathComplete)continue;float candidate=lift.WaitingCount*4+Mathf.Abs(lift.cabin.position.y-transform.position.y)+(lift.service?6:0);if(candidate<score){score=candidate;best=lift;}}
+   foreach(var lift in lifts){if(!lift||!lift.Operational)continue;int from=lift.FloorFor(transform.position.y),to=lift.FloorFor(destination.y);if(from==to)continue;var path=new NavMeshPath();var point=lift.QueuePoint(from,0);if(!guest.Agent.enabled||!guest.Agent.isOnNavMesh||!guest.Agent.CalculatePath(point,path)||path.status!=NavMeshPathStatus.PathComplete)continue;float candidate=lift.WaitingCount*4+Mathf.Abs(lift.cabin.position.y-transform.position.y)+(lift.service?6:0);if(candidate<score){score=candidate;best=lift;}}
    if(!best)return false;Elevator=best;SourceFloor=best.FloorFor(transform.position.y);DestinationFloor=best.FloorFor(destination.y);queueSlot=-1;Walking=true;return best.Enqueue(this,SourceFloor,DestinationFloor);
   }
   public void Board(int slot){Slot=slot;Aboard=Boarding=Walking=true;guest.Agent.isStopped=true;guest.Agent.enabled=false;walkStage=0;walkTarget=new Vector3(Elevator.transform.position.x,Elevator.cabin.position.y,-11.6f);}

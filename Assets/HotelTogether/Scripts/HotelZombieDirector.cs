@@ -26,13 +26,14 @@ namespace HotelTogether
         readonly List<HotelZombieBot> zombies=new();
         float activeNightTime,nextSpawn;
         bool wasNight;
+        void Start(){var setup=GetComponent<HotelDefenseSetup>();if(!setup)setup=gameObject.AddComponent<HotelDefenseSetup>();setup.Install(this);}
         public int ActiveCount {get{int count=0;foreach(var z in zombies)if(z&&z.Alive)count++;return count;}}
         public int WaveForNight(int night)=>Mathf.Min(maxWave,firstWave+Mathf.Max(0,night-1)*waveGrowth);
         public void Register(HotelHuman human){if(!humans.Contains(human))humans.Add(human);if(IsNight&&wasNight&&human.Guest&&human.Targetable)human.GetComponent<HotelGuestSurvival>()?.OnThreat();}
         public void Unregister(HotelHuman human){humans.Remove(human);}
         public void Alert(string text){if(hotel&&hotel.player)hotel.player.Notify(text,true);}
-        public void Casualty(HotelHuman human){Lost++;Alert(human.Player?"You could not recover. R to start over.":human.Guest.guestName+" was lost.");}
-        public void Kill(HotelZombieBot zombie){Kills++;zombies.Remove(zombie);}
+        public void Casualty(HotelHuman human){hotel.Economy?.Death(human);Lost++;Alert(human.Player?"You could not recover. R to start over.":human.Guest.guestName+" was lost.");}
+        public void Kill(HotelZombieBot zombie){hotel.Economy?.Kill();Kills++;zombies.Remove(zombie);}
         void Update()
         {
             if(!Running)return;
@@ -51,7 +52,7 @@ namespace HotelTogether
         {
             ClearZombies();woodStock=Mathf.Min(36,woodStock+16);medicineStock=Mathf.Min(6,medicineStock+2);
             foreach(var human in humans.ToArray())if(human){if(human.Guest)human.GetComponent<HotelGuestSurvival>()?.EndDanger();else if(human.Targetable)human.Heal(20);}
-            Alert("Dawn! Repair openings and remove entrance boards before check-in.");
+            Alert("Dawn! Repair openings, unlock doors and remove entrance boards before check-in.");
         }
         public HotelZombieBot SpawnZombie()
         {

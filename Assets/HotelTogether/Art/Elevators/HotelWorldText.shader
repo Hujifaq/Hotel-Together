@@ -6,7 +6,7 @@ Shader "HotelTogether/WorldText"
   Tags {"RenderPipeline"="UniversalPipeline" "RenderType"="Transparent" "Queue"="Transparent"}
   Pass
   {
-   ZWrite Off ZTest LEqual Cull Off Blend SrcAlpha OneMinusSrcAlpha
+   ZWrite Off ZTest LEqual Cull Back Blend SrcAlpha OneMinusSrcAlpha
    HLSLPROGRAM
    #pragma vertex vert
    #pragma fragment frag

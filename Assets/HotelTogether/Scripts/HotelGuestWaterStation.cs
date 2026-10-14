@@ -7,11 +7,13 @@ namespace HotelTogether
         public Transform approach, nozzle, cupPosition;
         public GameObject cupPrefab;
         public LineRenderer stream;
+        public bool WaterAvailable {get;private set;}=true;
+        public void SetSupply(bool available){WaterAvailable=available;if(!available&&stream)stream.enabled=false;}
         public int DrinksServed { get; private set; }
         readonly List<HotelGuestBot> queue=new();
         public int Join(HotelGuestBot guest)
         {
-            queue.RemoveAll(g=>!g);
+            if(!WaterAvailable)return -1;queue.RemoveAll(g=>!g);
             if(!queue.Contains(guest)){if(queue.Count>=4)return -1;queue.Add(guest);}
             return queue.IndexOf(guest);
         }
@@ -24,7 +26,7 @@ namespace HotelTogether
         }
         public void Pour(HotelGuestBot guest,bool enabled)
         {
-            if(!stream||Position(guest)!=0)return;
+            if(!stream||Position(guest)!=0)return;if(!WaterAvailable)enabled=false;
             stream.enabled=enabled;
             if(enabled){stream.SetPosition(0,nozzle.position);stream.SetPosition(1,cupPosition.position+Vector3.up*.08f);}
         }

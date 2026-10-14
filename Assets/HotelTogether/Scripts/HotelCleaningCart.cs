@@ -25,7 +25,7 @@ namespace HotelTogether
                 Waste++; RefreshWaste(); player.Notify("Litter bagged. Cart waste " + Waste + "/" + wasteCapacity + "."); return true;
             }
             var tool = player.held ? player.held.GetComponent<HotelCleaningTool>() : null;
-            if (tool) { tool.Rinse(); player.Notify("Mop rinsed in the cart bucket. Ready for " + tool.UsesLeft + " wet spots."); return true; }
+            if (tool) { tool.Rinse(); player.PlayGesture(HotelPlayerGesture.Interact,transform.position); player.Notify("Mop rinsed in the cart bucket. Ready for " + tool.UsesLeft + " wet spots."); return true; }
             if (player.held) { player.Notify("Housekeeping cart: bring a mop to rinse, or litter to dispose. G takes the mop."); return false; }
             if (player.cart) { player.EndCart(); return true; }
             player.BeginCart(GetComponent<HotelItem>()); return player.cart == GetComponent<HotelItem>();
@@ -41,9 +41,15 @@ namespace HotelTogether
             }
             if (player.held || player.IsReachingForItem) { player.Notify("Free your hands before taking the mop."); return false; }
             if (!mop || mop.DockedAt != this) { player.Notify("The mop is out. Bring it back with G."); return false; }
-            if (player.cart) player.EndCart();
+            return TakeMop(player);
+        }
+        public bool TakeMop(HotelPlayer player)
+        {
+            if(!player||player.held||player.seated||player.IsReachingForItem||!mop||mop.DockedAt!=this||Vector3.Distance(player.transform.position,transform.position)>3.2f)return false;
+            player.ParkCartForTool();
+            mop.PickupOrigin=this;
             mop.DockedAt = null; mop.transform.SetParent(system.transform, true);
-            foreach (var c in mop.GetComponentsInChildren<Collider>()) c.enabled = true;
+            mop.ConfigureDock(false);
             if (player.RequestPickup(mop.GetComponent<HotelItem>())) return true;
             Dock(); return false;
         }
@@ -51,9 +57,9 @@ namespace HotelTogether
         {
             if (!mop || !mopDock) return;
             mop.transform.SetParent(mopDock, false); mop.transform.localPosition = Vector3.zero; mop.transform.localRotation = Quaternion.identity;
-            mop.GetComponent<Rigidbody>().isKinematic = true;
-            foreach (var c in mop.GetComponentsInChildren<Collider>()) c.enabled = false;
             mop.DockedAt = this;
+            mop.PickupOrigin=null;
+            mop.ConfigureDock(true);var body=mop.GetComponent<Rigidbody>();if(body){body.position=mopDock.position;body.rotation=mopDock.rotation;}
         }
         public int EmptyWaste() { int amount = Waste; Waste = 0; RefreshWaste(); return amount; }
         void RefreshWaste() { if (wasteVisual) wasteVisual.SetActive(Waste > 0); }

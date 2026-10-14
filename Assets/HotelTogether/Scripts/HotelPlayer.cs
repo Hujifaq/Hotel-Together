@@ -2,13 +2,14 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 namespace HotelTogether {
- [RequireComponent(typeof(CharacterController))] public class HotelPlayer:MonoBehaviour {
+ [RequireComponent(typeof(CharacterController))] public partial class HotelPlayer:MonoBehaviour {
   public Camera view;public float speed=2.7f,sprint=4.4f,sensitivity=.12f;public HotelItem held,cart,seated;public string message;public int bellCount;
   CharacterController cc;Rigidbody anchor;FixedJoint grip;float yaw=180,pitch,vertical;Quaternion holdOffset;HotelItem focused;float messageUntil;Vector3 spawn;Quaternion startRotation;readonly List<Rigidbody> cargo=new();Transform hands;Font font;float fps;
   public HotelEmployeePlayer employee;public HotelCombat combat;public bool transportLocked;HotelLuggageTrolley activeTrolley;public HotelItem FocusedItem=>focused;
   Coroutine pickupReach;HotelItem pendingPickup;HotelHousekeepingSystem housekeeping;
   public bool IsReachingForItem=>pendingPickup!=null;
   public float ViewPitch=>pitch;
+  public HotelEconomy Economy=>hudHotel?hudHotel.Economy:null;
   HotelGuestSimulation hudHotel;
   readonly Queue<string> notices=new();
   string lastNotice;float lastNoticeAt;
@@ -16,30 +17,33 @@ namespace HotelTogether {
   int jobsPage,lastGuestCount=-1;
   void Start(){hudHotel=FindAnyObjectByType<HotelGuestSimulation>();housekeeping=FindFirstObjectByType<HotelHousekeepingSystem>();combat=GetComponent<HotelCombat>();cc=GetComponent<CharacterController>();Physics.IgnoreLayerCollision(8,9,true);spawn=transform.position;startRotation=transform.rotation;yaw=transform.eulerAngles.y;var hand=new GameObject("Physics grip anchor");anchor=hand.AddComponent<Rigidbody>();anchor.isKinematic=true;anchor.useGravity=false;eyeBase=standingEyeBase=view.transform.localPosition;if(employee)employee.Initialize(this);CreateHands();}
   public void Notify(string text,bool urgent=false){
-   if(string.IsNullOrWhiteSpace(text)||text=="Q  Put down | SPACE  Throw"||text=="E  Stand up"||text=="E  Release cart")return;
+   if(string.IsNullOrWhiteSpace(text)||text=="Q  Put down | RMB  Throw"||text=="E  Stand up"||text=="E  Release cart")return;
    if(text==message&&Time.unscaledTime<messageUntil||text==lastNotice&&Time.unscaledTime-lastNoticeAt<3||notices.Contains(text))return;
    lastNotice=text;lastNoticeAt=Time.unscaledTime;
    if(urgent){notices.Clear();ShowNotice(text);return;}
    if(Time.unscaledTime>=messageUntil){ShowNotice(text);return;}
    if(notices.Count>=3)notices.Dequeue();notices.Enqueue(text);
   }
-  void ShowNotice(string text){message=text;messageUntil=Time.unscaledTime+Mathf.Clamp(2.6f+text.Length*.025f,3.3f,7);}
+  void ShowNotice(string text){message=text;messageUntil=Time.unscaledTime+Mathf.Clamp(2.6f+text.Length*.025f,3.3f,7);if(menuPaused)noticePauseStarted=Time.unscaledTimeAsDouble;}
   void AdvanceNotices(){if(Time.unscaledTime>=messageUntil&&notices.Count>0)ShowNotice(notices.Dequeue());}
-  public void CaptureMouse(){Cursor.lockState=CursorLockMode.Locked;Cursor.visible=false;}
+  public void CaptureMouse(){ResumeGameplay();}
   public void Face(float heading){yaw=heading;pitch=0;transform.rotation=Quaternion.Euler(0,yaw,0);view.transform.localRotation=Quaternion.identity;}
-  void Update(){AdvanceNotices();fps=Mathf.Lerp(fps,1/Mathf.Max(Time.unscaledDeltaTime,.001f),.04f);var k=Keyboard.current;var m=Mouse.current;if(k==null||m==null)return;if(k.escapeKey.wasPressedThisFrame){jobsOpen=false;Cursor.lockState=CursorLockMode.None;Cursor.visible=true;}if(Cursor.lockState!=CursorLockMode.Locked)return;UpdateHudState();if(k.jKey.wasPressedThisFrame)jobsOpen=!jobsOpen;if(jobsOpen){if(k.rightArrowKey.wasPressedThisFrame)jobsPage++;if(k.leftArrowKey.wasPressedThisFrame)jobsPage--;}if(transportLocked||combat&&combat.IsDown)return;
-   var delta=m.delta.ReadValue()*sensitivity;float newYaw=yaw+delta.x;if(cart)newYaw=Mathf.MoveTowardsAngle(yaw,newYaw,90*Time.deltaTime);pitch=Mathf.Clamp(pitch-delta.y,-80,88);
+  void Update(){fps=Mathf.Lerp(fps,1/Mathf.Max(Time.unscaledDeltaTime,.001f),.04f);if(UpdateMenuInput())return;AdvanceNotices();var k=Keyboard.current;var m=Mouse.current;if(k==null||m==null||!GameplayInputEnabled)return;UpdateHudState();if(k.uKey.wasPressedThisFrame&&Economy&&Economy.Initialized){Economy.OpenShop();return;}if(k.jKey.wasPressedThisFrame)jobsOpen=!jobsOpen;if(jobsOpen){if(k.rightArrowKey.wasPressedThisFrame)jobsPage++;if(k.leftArrowKey.wasPressedThisFrame)jobsPage--;}if(transportLocked||combat&&combat.IsDown)return;
+   var delta=m.delta.ReadValue()*sensitivity;float newYaw=yaw+delta.x;if(cart)newYaw=Mathf.MoveTowardsAngle(yaw,newYaw,90*Time.deltaTime);pitch=Mathf.Clamp(pitch-delta.y*(invertLook?-1:1),-80,88);
    float h=(k.dKey.isPressed?1:0)-(k.aKey.isPressed?1:0),v=(k.wKey.isPressed?1:0)-(k.sKey.isPressed?1:0);Vector3 move=Quaternion.Euler(0,newYaw,0)*new Vector3(h,0,v).normalized*(k.leftShiftKey.isPressed?sprint:speed)*Time.deltaTime;
-   if(cart&&!ClearCart(transform.position+move,newYaw)){move=Vector3.zero;newYaw=yaw;Notify("The cart is blocked.");}yaw=newYaw;transform.rotation=Quaternion.Euler(0,yaw,0);view.transform.localRotation=Quaternion.Euler(pitch,0,0);
-   if(!seated){if(cc.isGrounded&&vertical<0)vertical=-2;vertical+=Physics.gravity.y*Time.deltaTime;cc.Move(move+Vector3.up*vertical*Time.deltaTime);}
-   focused=null;if(Physics.Raycast(view.transform.position,view.transform.forward,out var hit,3.1f,~((1<<8)|(1<<9)),QueryTriggerInteraction.Collide)){focused=hit.collider.GetComponentInParent<HotelItem>();if(!focused)focused=hit.collider.GetComponentInParent<DoorLeaf>()?.owner;}
-   if(k.eKey.wasPressedThisFrame)Use();if(k.qKey.wasPressedThisFrame)Drop();if(k.spaceKey.wasPressedThisFrame&&held)Drop(true);if(k.rKey.wasPressedThisFrame)ResetWorld();
+   if(cart)ResolveCartMovement(ref move,ref newYaw);yaw=newYaw;transform.rotation=Quaternion.Euler(0,yaw,0);view.transform.localRotation=Quaternion.Euler(pitch,0,0);
+   MoveCharacter(move,Time.deltaTime,k.spaceKey.wasPressedThisFrame);
+   RefreshInteractionFocus();
+   UpdateGuestGrip();HandleMouseInteraction(m);if(k.eKey.wasPressedThisFrame&&!GrabbedGuest)Use();if(k.qKey.wasPressedThisFrame){CancelMouseGrip();if(GrabbedGuest)ReleaseGuest(false);else Drop();}if(k.rKey.wasPressedThisFrame){var gun=held?held.GetComponent<HotelFirearm>():null;if(gun)gun.BeginReload(this);else ResetWorld();}
 
   }
 
     void Use(){
    if(IsReachingForItem||transportLocked)return;if(seated){Stand();return;}
    if(focused){
+    var latch=focused.GetComponent<HotelDefenseLatch>();if(latch){latch.opening.ToggleLock(this);return;}
+    if(DefenseWork&&DefenseWork.Equipped&&focused.GetComponentInParent<HotelDefenseOpening>() is HotelDefenseOpening defenseSite){DefenseWork.Begin(defenseSite);return;}
+    var dockedMop=focused.GetComponent<HotelCleaningTool>();if(dockedMop&&dockedMop.DockedAt){dockedMop.DockedAt.TakeMop(this);return;}var money=focused.GetComponent<HotelCash>();if(money){money.TryCollect(this);return;}var ammo=focused.GetComponent<HotelArmoryResupply>();if(ammo){ammo.Use(this);return;}if(UseMaintenance(focused))return;AnimateUse(focused);
     var mess=focused.GetComponent<HotelFloorMess>();if(mess){mess.Use(this);return;}
     var cleaningCart=focused.GetComponent<HotelCleaningCart>();if(cleaningCart){cleaningCart.Use(this);return;}
     var bin=focused.GetComponent<HotelWasteBin>();if(bin){bin.Use(this);return;}
@@ -50,35 +54,40 @@ namespace HotelTogether {
     var trolley=focused.GetComponent<HotelLuggageTrolley>();if(trolley&&held){trolley.Load(this);return;}
     var tray=held?held.GetComponent<HotelServiceTray>():null;var supply=focused.GetComponent<HotelGuestSupply>();if(tray&&supply){tray.Load(supply,this);return;}
    }
-   if(focused&&focused.kind=="door"){var defense=focused.GetComponent<HotelDefenseOpening>();if(defense&&defense.BoardCount>0){Notify("N to remove planks before opening this door.");return;}if(defense&&defense.Broken){Notify("T to repair this broken opening.");return;}var entrance=focused.GetComponent<HotelAutomaticEntrance>();if(entrance){entrance.RequestOpen(true);Notify("Opening "+ItemName(focused));}else{focused.open=!focused.open;Notify((focused.open?"Opened ":"Closed ")+ItemName(focused));}return;}
+   if(focused&&focused.kind=="door"){var defense=focused.GetComponent<HotelDefenseOpening>();if(defense&&(defense.Locked||defense.LockPending)){Notify("Unlock this door with the barricade hammer first.");return;}if(defense&&defense.BoardCount>0){Notify("Use the hammer in REMOVE mode before opening this door.");return;}if(defense&&defense.Broken){Notify("Use the hammer in REPAIR mode to rebuild this opening.");return;}var entrance=focused.GetComponent<HotelAutomaticEntrance>();if(entrance){entrance.RequestOpen(true);Notify("Opening "+ItemName(focused));}else{focused.open=!focused.open;Notify((focused.open?"Opened ":"Closed ")+ItemName(focused));}return;}
    if(cart){EndCart();return;}
-   if(focused&&focused.kind=="barricade"){focused.GetComponent<HotelDefenseOpening>()?.AddBoard(combat);return;}
+   if(focused&&focused.kind=="barricade"){if(DefenseWork&&DefenseWork.Equipped)DefenseWork.Begin(focused.GetComponent<HotelDefenseOpening>());else Notify("Equip the barricade hammer from the plank rack. Hold LMB here to build.");return;}
    if(focused&&focused.kind=="defenseStock"){focused.GetComponent<HotelDefenseStock>()?.Collect(combat);return;}
    if(focused&&focused.kind=="guest"){focused.GetComponent<HotelGuestBot>()?.Serve(this);return;}
+   if(focused&&focused.kind=="lamp"){focused.lampOn=!focused.lampOn;if(focused.lamp)focused.lamp.enabled=focused.lampOn;Notify(ItemName(focused)+(focused.lampOn?" is on!":" is off!"));return;}
+   if(focused&&focused.kind=="bell"){Bell();return;}
+   if(focused&&focused.kind=="water"){if(focused.waterFixture){focused.waterFixture.Toggle();Notify(ItemName(focused)+(focused.waterFixture.IsRunning?" is running.":" is off."));}return;}
    if(held){Drop();return;}if(!focused)return;
    switch(focused.kind){case "pickup":case "mop":RequestPickup(focused);break;case "cart":BeginCart(focused);break;case "seat":Sit(focused);break;case "lamp":focused.lampOn=!focused.lampOn;if(focused.lamp)focused.lamp.enabled=focused.lampOn;Notify(ItemName(focused)+(focused.lampOn?" is on!":" is off!"));break;case "bell":Bell();break;case "water":if(focused.waterFixture){focused.waterFixture.Toggle();Notify(ItemName(focused)+(focused.waterFixture.IsRunning?" is running.":" is off."));}break;default:Notify("This item is decorative.");break;}
   }
 public bool RequestPickup(HotelItem item){
-   if(!item||held||cart||seated||pendingPickup||(item.kind!="pickup"&&item.kind!="mop"))return false;
-   if(!employee||!employee.Ready){PickUp(item);return true;}
+   var dockedMop=item?item.GetComponent<HotelCleaningTool>():null;if(dockedMop&&dockedMop.DockedAt)return dockedMop.DockedAt.TakeMop(this);
+   if(!item||held||cart||seated||GrabbedGuest||pendingPickup||(item.kind!="pickup"&&item.kind!="mop"))return false;
+
    Vector3 point=item.transform.position;var renderers=item.GetComponentsInChildren<Renderer>();if(renderers.Length>0)point=renderers[0].bounds.ClosestPoint(view.transform.position);
    if(Vector3.Distance(view.transform.position,point)>3.1f)return false;
-   pendingPickup=item;employee.Avatar.BeginReach(item.transform,point);pickupReach=StartCoroutine(ReachAndPickUp(item));return true;
+   pendingPickup=item;if(employee&&employee.Ready)employee.Avatar.BeginReach(item.transform,point);pickupReach=StartCoroutine(ReachAndPickUp(item));return true;
   }
   System.Collections.IEnumerator ReachAndPickUp(HotelItem item){
    yield return new WaitForSeconds(.24f);
    if(item&&Cursor.lockState==CursorLockMode.Locked&&!held&&!cart&&!seated&&Vector3.Distance(view.transform.position,item.transform.position)<3.4f)PickUp(item);
-   pendingPickup=null;pickupReach=null;if(employee&&employee.Avatar)employee.Avatar.EndReach();
+   ReturnCancelledMop();pendingPickup=null;pickupReach=null;if(employee&&employee.Avatar)employee.Avatar.EndReach();
   }
-  void CancelPickupReach(){if(pickupReach!=null)StopCoroutine(pickupReach);pickupReach=null;pendingPickup=null;if(employee&&employee.Avatar)employee.Avatar.EndReach();}
+  void ReturnCancelledMop(){var tool=pendingPickup?pendingPickup.GetComponent<HotelCleaningTool>():null;if(tool&&tool.PickupOrigin&&held!=pendingPickup)tool.PickupOrigin.Dock();}
+  void CancelPickupReach(){if(pickupReach!=null)StopCoroutine(pickupReach);ReturnCancelledMop();pickupReach=null;pendingPickup=null;if(employee&&employee.Avatar)employee.Avatar.EndReach();}
   [Header("Pickup and throw physics")]
   [Range(3,12)]public float throwSpeed=6.8f;
   [Range(60,250)]public float carrySpring=150;
   [Range(12,35)]public float carryDamping=24;
   Rigidbody heldBody;bool restoreGravity;float restoreDamping,restoreAngularDamping;Vector3 carryCenter;float carryRadius;Renderer[] carryRenderers;int[] heldLayers;Transform[] heldTransforms;float throwGesture;
-  Quaternion CarryRotation()=>Quaternion.Euler(held&&held.GetComponent<HotelServiceTray>()?0:Mathf.Clamp(pitch*.38f,-24,24),yaw,0)*(combat?combat.SwingOffset:Quaternion.identity);
+  Quaternion CarryRotation()=>held&&held.GetComponent<HotelFirearm>()?view.transform.rotation:Quaternion.Euler(held&&held.GetComponent<HotelServiceTray>()?0:Mathf.Clamp(pitch*.38f,-24,24),yaw,0)*(combat?combat.SwingOffset:Quaternion.identity)*(held&&held.GetComponent<HotelWeapon>()?Quaternion.Euler(-32*blockWeight,-12*blockWeight,45*blockWeight):Quaternion.identity)*MaintenanceCarryOffset()*DefenseCarryOffset();
   Vector3 CarryCenterTarget(){
-   var tray=held&&held.GetComponent<HotelServiceTray>();var local=tray?new Vector3(0,-.43f,.78f):new Vector3(0,-.23f,itemHoldDistance);var target=view.transform.TransformPoint(local);var system=held&&held.GetComponent<HotelCleaningTool>()?housekeeping:null;if(system&&system.ActiveMop){var mess=system.ActiveMop;var foot=transform.position;var surface=mess.transform.position;target=new Vector3(surface.x,surface.y+held.dimensions.y*.5f+.035f,surface.z)+transform.right*(Mathf.Sin(Time.time*7)*.09f);return target;}var direction=(target-view.transform.position).normalized;float distance=local.magnitude;
+   var tray=held&&held.GetComponent<HotelServiceTray>();var firearm=held?held.GetComponent<HotelFirearm>():null;var local=firearm?new Vector3(.16f,-.25f,.58f):tray?new Vector3(0,-.43f,.78f):new Vector3(0,-.23f,itemHoldDistance);if(held&&held.GetComponent<HotelWeapon>()){local.y+=.18f*blockWeight;local.z-=.08f*blockWeight;}if(gesture==HotelPlayerGesture.Interact){local.z+=GestureWeight*.045f;}if(gesture==HotelPlayerGesture.Refill){local.y+=Mathf.Sin(GestureProgress*Mathf.PI*4)*.018f;}var target=view.transform.TransformPoint(local);var system=held&&held.GetComponent<HotelCleaningTool>()?housekeeping:null;if(system&&system.ActiveMop){var mess=system.ActiveMop;var foot=transform.position;var surface=mess.transform.position;target=new Vector3(surface.x,surface.y+held.dimensions.y*.5f+.035f,surface.z)+transform.right*(Mathf.Sin(Time.time*7)*.09f);return target;}var direction=(target-view.transform.position).normalized;float distance=local.magnitude;
    if(Physics.SphereCast(view.transform.position,carryRadius,direction,out var hit,distance,~((1<<8)|(1<<9)),QueryTriggerInteraction.Ignore))target=view.transform.position+direction*Mathf.Max(.38f,hit.distance-.04f);
    return target;
   }
@@ -93,38 +102,39 @@ public bool RequestPickup(HotelItem item){
     if(float.IsFinite(axis.x)&&axis.sqrMagnitude>.01f){var desired=axis.normalized*Mathf.Clamp(angle*Mathf.Deg2Rad*12,-12,12);heldBody.AddTorque((desired-heldBody.angularVelocity)*18,ForceMode.Acceleration);}
     anchor.position=target;anchor.rotation=rotation;
    }
-   if(cart){var rb=cart.GetComponent<Rigidbody>();rb.MovePosition(CartPosition(transform.position,yaw));rb.MoveRotation(Quaternion.Euler(0,yaw-90,0));}
+   if(cart){var rb=cart.GetComponent<Rigidbody>();var desired=CartPosition(transform.position,yaw);var rotation=Quaternion.Euler(0,yaw-90,0);PushCartProps(desired,rotation);rb.MovePosition(desired);rb.MoveRotation(rotation);}
   }
   void PickUp(HotelItem item){
-   item.GetComponent<HotelGuestDelivery>()?.Detach();if(held)Drop();held=item;heldBody=item.GetComponent<Rigidbody>();if(!heldBody)heldBody=item.gameObject.AddComponent<Rigidbody>();
+   var cleaningTool=item.GetComponent<HotelCleaningTool>();if(cleaningTool)cleaningTool.PickupOrigin=null;
+   PlayFeedback(HotelFeedback.Pickup);var impact=item.GetComponent<HotelPropAudio>();if(!impact)impact=item.gameObject.AddComponent<HotelPropAudio>();impact.Initialize(this);item.GetComponent<HotelGuestDelivery>()?.Detach();if(held)Drop();held=item;heldBody=item.GetComponent<Rigidbody>();if(!heldBody)heldBody=item.gameObject.AddComponent<Rigidbody>();
    var rb=heldBody;restoreGravity=rb.useGravity;restoreDamping=rb.linearDamping;restoreAngularDamping=rb.angularDamping;
    rb.isKinematic=false;rb.useGravity=false;rb.mass=Mathf.Max(.15f,rb.mass);rb.interpolation=RigidbodyInterpolation.Interpolate;rb.collisionDetectionMode=CollisionDetectionMode.ContinuousDynamic;rb.maxAngularVelocity=14;rb.linearDamping=.08f;rb.angularDamping=.1f;rb.linearVelocity=rb.angularVelocity=Vector3.zero;
    heldTransforms=item.GetComponentsInChildren<Transform>();heldLayers=new int[heldTransforms.Length];for(int i=0;i<heldTransforms.Length;i++){heldLayers[i]=heldTransforms[i].gameObject.layer;heldTransforms[i].gameObject.layer=9;}
    var rotation=CarryRotation();var position=rb.position;rb.rotation=rotation;item.transform.SetPositionAndRotation(position,rotation);Physics.SyncTransforms();
    carryRenderers=item.GetComponentsInChildren<Renderer>();bool found=false;var bounds=new Bounds(item.transform.position,item.dimensions);
-   foreach(var renderer in carryRenderers){if(!renderer.enabled)continue;var local=renderer.localBounds;for(int x=-1;x<=1;x+=2)for(int y=-1;y<=1;y+=2)for(int z=-1;z<=1;z+=2){var point=renderer.transform.TransformPoint(local.center+Vector3.Scale(local.extents,new Vector3(x,y,z)));if(!found){bounds=new Bounds(point,Vector3.zero);found=true;}else bounds.Encapsulate(point);}}
+   foreach(var renderer in carryRenderers){if(!renderer.enabled||renderer is ParticleSystemRenderer||renderer is LineRenderer)continue;var local=renderer.localBounds;for(int x=-1;x<=1;x+=2)for(int y=-1;y<=1;y+=2)for(int z=-1;z<=1;z+=2){var point=renderer.transform.TransformPoint(local.center+Vector3.Scale(local.extents,new Vector3(x,y,z)));if(!found){bounds=new Bounds(point,Vector3.zero);found=true;}else bounds.Encapsulate(point);}}
    carryCenter=Quaternion.Inverse(rotation)*(bounds.center-rb.position);carryRadius=Mathf.Clamp(Mathf.Min(bounds.extents.x,bounds.extents.y),.035f,.22f);
    var target=CarryCenterTarget()-rotation*carryCenter;rb.position=target;item.transform.SetPositionAndRotation(target,rotation);anchor.position=target;anchor.rotation=rotation;holdOffset=Quaternion.identity;rb.WakeUp();Physics.SyncTransforms();
-   handBoundsOwner=null;Notify("Q  Put down | SPACE  Throw");
+   handBoundsOwner=null;Notify("Q  Put down | RMB  Throw");
   }
   public void Drop(bool throwIt=false){
-   CancelPickupReach();if(!held)return;var rb=heldBody?heldBody:held.GetComponent<Rigidbody>();
+   CancelPickupReach();if(!held)return;PlayFeedback(HotelFeedback.Drop);PlayGesture(throwIt?HotelPlayerGesture.Throw:HotelPlayerGesture.Place,held.transform.position);var rb=heldBody?heldBody:held.GetComponent<Rigidbody>();
    if(grip){Destroy(grip);grip=null;}
    if(heldTransforms!=null){for(int i=0;i<heldTransforms.Length;i++)if(heldTransforms[i])heldTransforms[i].gameObject.layer=heldLayers[i];}else SetLayer(held.transform,0);
    rb.isKinematic=false;rb.useGravity=restoreGravity;rb.linearDamping=restoreDamping;rb.angularDamping=restoreAngularDamping;rb.WakeUp();
-   if(throwIt){var movement=cc&&cc.enabled?new Vector3(cc.velocity.x,0,cc.velocity.z):Vector3.zero;rb.linearVelocity=movement*.55f;rb.AddForce(view.transform.forward*throwSpeed+Vector3.up*.9f,ForceMode.VelocityChange);rb.AddTorque(view.transform.right*3.2f+view.transform.up*1.1f,ForceMode.VelocityChange);throwGesture=1;if(employee&&employee.Avatar)employee.Avatar.ThrowGesture();}
+   if(throwIt){var movement=cc&&cc.enabled?new Vector3(cc.velocity.x,0,cc.velocity.z):Vector3.zero;rb.linearVelocity=movement*.55f;rb.AddForce(view.transform.forward*throwSpeed+Vector3.up*.9f,ForceMode.VelocityChange);rb.AddTorque(view.transform.right*3.2f+view.transform.up*1.1f,ForceMode.VelocityChange);throwGesture=1;var projectile=held.GetComponent<HotelThrownProp>();if(!projectile)projectile=held.gameObject.AddComponent<HotelThrownProp>();projectile.Arm(this);}
    held=null;heldBody=null;heldTransforms=null;heldLayers=null;
   }
 
   static void SetLayer(Transform t,int layer){t.gameObject.layer=layer;foreach(Transform c in t)SetLayer(c,layer);}
   Vector3 CartPosition(Vector3 player,float heading)=>activeTrolley?activeTrolley.PositionFor(player,heading):player+Quaternion.Euler(0,heading,0)*Vector3.forward*1.12f+Vector3.up*(cart.dimensions.y*.5f);
-  bool ClearCart(Vector3 pos,float heading){if(!cart)return true;var desired=CartPosition(pos,heading);var rot=Quaternion.Euler(0,heading-90,0);int steps=Mathf.Max(1,Mathf.CeilToInt(Vector3.Distance(cart.transform.position,desired)/.1f),Mathf.CeilToInt(Quaternion.Angle(cart.transform.rotation,rot)/8));var colliders=cart.GetComponentsInChildren<BoxCollider>();for(int i=1;i<=steps;i++){var p=Vector3.Lerp(cart.transform.position,desired,(float)i/steps);var q=Quaternion.Slerp(cart.transform.rotation,rot,(float)i/steps);foreach(var box in colliders){if(box.transform.GetComponentInParent<HotelItem>()!=cart)continue;var local=cart.transform.InverseTransformPoint(box.transform.TransformPoint(box.center));var half=Vector3.Scale(box.size,box.transform.lossyScale)*.5f-Vector3.one*.018f;half=Vector3.Max(half,Vector3.one*.005f);var relative=Quaternion.Inverse(cart.transform.rotation)*box.transform.rotation;foreach(var c in Physics.OverlapBox(p+q*local,half,q*relative,~(1<<8),QueryTriggerInteraction.Ignore)){if(c.transform.IsChildOf(cart.transform)||c.transform.IsChildOf(transform))continue;return false;}}}return true;}
+  bool ClearCart(Vector3 pos,float heading){if(!cart)return true;var desired=CartPosition(pos,heading);var rot=Quaternion.Euler(0,heading-90,0);int steps=Mathf.Max(1,Mathf.CeilToInt(Vector3.Distance(cart.transform.position,desired)/.1f),Mathf.CeilToInt(Quaternion.Angle(cart.transform.rotation,rot)/8));var colliders=cart.GetComponentsInChildren<BoxCollider>();for(int i=1;i<=steps;i++){var p=Vector3.Lerp(cart.transform.position,desired,(float)i/steps);var q=Quaternion.Slerp(cart.transform.rotation,rot,(float)i/steps);foreach(var box in colliders){if(!box.enabled||box.isTrigger||box.transform.GetComponentInParent<HotelItem>()!=cart)continue;var local=cart.transform.InverseTransformPoint(box.transform.TransformPoint(box.center));var half=Vector3.Scale(box.size,box.transform.lossyScale)*.5f-Vector3.one*.018f;half=Vector3.Max(half,Vector3.one*.005f);var relative=Quaternion.Inverse(cart.transform.rotation)*box.transform.rotation;foreach(var c in Physics.OverlapBox(p+q*local,half,q*relative,~(1<<8),QueryTriggerInteraction.Ignore)){if(c.transform.IsChildOf(cart.transform)||c.transform.IsChildOf(transform))continue;if(c.bounds.max.y<=p.y+(q*local).y-half.y+.035f)continue;if(CanPushCartProp(c.attachedRigidbody)&&PropHasPushRoom(c.attachedRigidbody,p-cart.transform.position))continue;return false;}}}return true;}
   public void BeginCart(HotelItem o){cart=o;activeTrolley=o.GetComponent<HotelLuggageTrolley>();if(activeTrolley)activeTrolley.SetPushing(true);o.GetComponent<HotelCleaningCart>()?.SetPushing(true);var rb=o.GetComponent<Rigidbody>();if(!rb)rb=o.gameObject.AddComponent<Rigidbody>();foreach(var a in FindObjectsByType<HotelItem>(FindObjectsSortMode.None)){var r=a.GetComponent<Rigidbody>();if(!r||r==rb||r.isKinematic)continue;float bottom=a.transform.position.y-a.dimensions.y/2;float baseY=o.transform.position.y-o.dimensions.y/2;if(Vector2.Distance(new Vector2(a.transform.position.x,a.transform.position.z),new Vector2(o.transform.position.x,o.transform.position.z))<.5f&&bottom>baseY+.27f&&bottom<baseY+.5f){r.isKinematic=true;a.transform.SetParent(o.transform,true);cargo.Add(r);}}
-   if(!ClearCart(transform.position,yaw)){EndCart();Notify("Not enough room. Move back and try again!");return;}rb.linearVelocity=Vector3.zero;rb.angularVelocity=Vector3.zero;rb.isKinematic=true;rb.position=CartPosition(transform.position,yaw);rb.rotation=Quaternion.Euler(0,yaw-90,0);if(hands)hands.gameObject.SetActive(true);UpdateHands();Notify("E  Release cart");}
-  public void EndCart(){if(!cart)return;if(activeTrolley)activeTrolley.SetPushing(false);cart.GetComponent<HotelCleaningCart>()?.SetPushing(false);var rb=cart.GetComponent<Rigidbody>();rb.isKinematic=false;rb.linearVelocity=Vector3.zero;foreach(var r in cargo){r.transform.SetParent(cart.transform.parent,true);r.isKinematic=false;}cargo.Clear();cart=null;activeTrolley=null;if(hands)hands.gameObject.SetActive(false);}
-  void Sit(HotelItem o){var guests=FindFirstObjectByType<HotelGuestSimulation>();if(guests&&guests.IsSeatOccupied(o)){Notify("This seat is reserved for a guest.");return;}seated=o;cc.enabled=false;transform.position=new Vector3(o.transform.position.x,o.home.y-o.dimensions.y/2+.025f,o.transform.position.z);eyeBase=new Vector3(standingEyeBase.x,o.seatEyeHeight,standingEyeBase.z);view.transform.localPosition=eyeBase;smoothedBob=Vector3.zero;bobWeight=0;Notify("E  Stand up");}
-  void Stand(){var s=seated;if(!s)return;Vector3 target=s.transform.position+s.transform.forward*(s.dimensions.z/2+.75f);target.y=transform.position.y;if(Physics.CheckCapsule(target+Vector3.up*.35f,target+Vector3.up*1.35f,.28f,~((1<<8)|(1<<9)),QueryTriggerInteraction.Ignore)){target=s.transform.position-s.transform.forward*(s.dimensions.z/2+.75f);target.y=transform.position.y;}transform.position=target;eyeBase=standingEyeBase;view.transform.localPosition=eyeBase;smoothedBob=Vector3.zero;bobWeight=0;cc.enabled=true;vertical=0;seated=null;}
-  public void ResetWorld(){notices.Clear();messageUntil=0;message=null;lastNotice=null;jobsOpen=false;jobsPage=0;lastGuestCount=-1;sunsetNotice=lowHealthNotice=false;transportLocked=false;foreach(var elevator in FindObjectsByType<HotelElevator>(FindObjectsSortMode.None))elevator.ResetElevator();foreach(var lift in FindObjectsByType<HotelServiceLift>(FindObjectsSortMode.None))lift.ResetLift();Drop();EndCart();seated=null;cc.enabled=false;transform.SetPositionAndRotation(spawn,startRotation);eyeBase=standingEyeBase;view.transform.localPosition=eyeBase;smoothedBob=Vector3.zero;bobWeight=0;pitch=0;yaw=startRotation.eulerAngles.y;cc.enabled=true;foreach(var o in FindObjectsByType<HotelItem>(FindObjectsSortMode.None))o.ResetItem();Physics.SyncTransforms();FindFirstObjectByType<HotelGuestSimulation>()?.ResetSimulation();FindFirstObjectByType<HotelZombieDirector>()?.ResetDefense();Notify("Fresh start!");}
+   if(!ClearCart(transform.position,yaw)){EndCart();Notify("Not enough room. Move back and try again!");return;}rb.linearVelocity=Vector3.zero;rb.angularVelocity=Vector3.zero;rb.isKinematic=true;rb.mass=Mathf.Max(12,rb.mass);rb.collisionDetectionMode=CollisionDetectionMode.ContinuousSpeculative;rb.position=CartPosition(transform.position,yaw);rb.rotation=Quaternion.Euler(0,yaw-90,0);if(hands)hands.gameObject.SetActive(true);UpdateHands();Notify("E  Release cart");}
+  public void EndCart(){if(!cart)return;PlayGesture(HotelPlayerGesture.Interact,cart.transform.position);if(activeTrolley)activeTrolley.SetPushing(false);cart.GetComponent<HotelCleaningCart>()?.SetPushing(false);var rb=cart.GetComponent<Rigidbody>();rb.isKinematic=false;rb.linearVelocity=Vector3.zero;foreach(var r in cargo){r.transform.SetParent(cart.transform.parent,true);r.isKinematic=false;}cargo.Clear();cart=null;activeTrolley=null;if(hands)hands.gameObject.SetActive(false);}
+  void Sit(HotelItem o){var guests=FindFirstObjectByType<HotelGuestSimulation>();if(guests&&guests.IsSeatOccupied(o)){Notify("This seat is reserved for a guest.");return;}PlayGesture(HotelPlayerGesture.Sit,o.transform.position);seated=o;cc.enabled=false;transform.position=new Vector3(o.transform.position.x,o.home.y-o.dimensions.y/2+.025f,o.transform.position.z);eyeBase=new Vector3(standingEyeBase.x,o.seatEyeHeight,standingEyeBase.z);smoothedBob=Vector3.zero;bobWeight=0;Notify("E  Stand up");}
+  void Stand(){var s=seated;if(!s)return;PlayGesture(HotelPlayerGesture.Stand,s.transform.position);Vector3 target=s.transform.position+s.transform.forward*(s.dimensions.z/2+.75f);target.y=transform.position.y;if(Physics.CheckCapsule(target+Vector3.up*.35f,target+Vector3.up*1.35f,.28f,~((1<<8)|(1<<9)),QueryTriggerInteraction.Ignore)){target=s.transform.position-s.transform.forward*(s.dimensions.z/2+.75f);target.y=transform.position.y;}transform.position=target;eyeBase=standingEyeBase;smoothedBob=Vector3.zero;bobWeight=0;cc.enabled=true;vertical=0;seated=null;}
+  public void ResetWorld(){CancelMouseGrip();jumpPresentation=0;Maintenance?.ResetMaintenance();ReleaseGuest(false);notices.Clear();messageUntil=0;message=null;lastNotice=null;jobsOpen=false;jobsPage=0;lastGuestCount=-1;sunsetNotice=lowHealthNotice=false;transportLocked=false;foreach(var elevator in FindObjectsByType<HotelElevator>(FindObjectsSortMode.None))elevator.ResetElevator();foreach(var lift in FindObjectsByType<HotelServiceLift>(FindObjectsSortMode.None))lift.ResetLift();Drop();EndCart();seated=null;cc.enabled=false;transform.SetPositionAndRotation(spawn,startRotation);eyeBase=standingEyeBase;view.transform.localPosition=eyeBase;smoothedBob=Vector3.zero;bobWeight=0;bobPhase=0;vertical=0;pitch=0;yaw=startRotation.eulerAngles.y;view.transform.localRotation=Quaternion.identity;focused=null;bellCount=0;cc.enabled=true;foreach(var o in FindObjectsByType<HotelItem>(FindObjectsSortMode.None))o.ResetItem();Physics.SyncTransforms();FindFirstObjectByType<HotelGuestSimulation>()?.ResetSimulation();FindFirstObjectByType<HotelZombieDirector>()?.ResetDefense();ResetActionAnimation();Notify("Fresh start!");}
   void Bell(){bellCount++;var clip=AudioClip.Create("Reception bell",24000,1,24000,false);var samples=new float[24000];for(int i=0;i<samples.Length;i++){float t=i/24000f;samples[i]=Mathf.Sin(2*Mathf.PI*1568*t)*.15f*Mathf.Exp(-t*7);}clip.SetData(samples,0);AudioSource.PlayClipAtPoint(clip,focused.transform.position,.7f);Destroy(clip,2);Notify("Ding! Someone will be right with you.");}
   [Header("First-person feel")]
   public bool walkingCameraBob=true;
@@ -137,7 +147,7 @@ public bool RequestPickup(HotelItem item){
   HandRig[] handRigs;HotelItem handBoundsOwner;Renderer[] handBoundsRenderers=System.Array.Empty<Renderer>();Collider[] handGripColliders=System.Array.Empty<Collider>();Renderer handShaftRenderer;
   sealed class HandRig {public Transform palm,model;public Mesh mesh;public Vector3[] vertices,normals;public float morph;public float weight;public Vector3 target;public Quaternion rotation;public float side;}
 
-  void LateUpdate(){if(!view||!cc)return;UpdateCameraMotion(Time.deltaTime);if(employee&&employee.Ready)employee.UpdatePresentation(Time.deltaTime);UpdateHands();if(employee&&employee.Avatar)employee.Avatar.SetInteractionArmsHidden(hands&&hands.gameObject.activeSelf);}
+  void LateUpdate(){if(menuPaused||!view||!cc)return;AdvanceActionAnimation(Time.deltaTime);AdvanceFeedback(Time.deltaTime);UpdateCameraMotion(Time.deltaTime);if(employee&&employee.Ready)employee.UpdatePresentation(Time.deltaTime);UpdateHands();if(employee&&employee.Avatar)employee.Avatar.SetInteractionArmsHidden(hands&&hands.gameObject.activeSelf);}
   void UpdateCameraMotion(float dt){
    dt=Mathf.Min(dt,.05f);var velocity=cc.enabled?cc.velocity:Vector3.zero;float horizontal=new Vector2(velocity.x,velocity.z).magnitude;
    bool moving=walkingCameraBob&&cc.enabled&&cc.isGrounded&&!seated&&Cursor.lockState==CursorLockMode.Locked&&horizontal>.12f;
@@ -147,7 +157,7 @@ public bool RequestPickup(HotelItem item){
    var target=new Vector3(Mathf.Sin(bobPhase*.5f)*amount*.4f,Mathf.Sin(bobPhase)*amount,0);
    smoothedBob=Vector3.Lerp(smoothedBob,target,1-Mathf.Exp(-dt*14));
    if(bobWeight<.001f&&smoothedBob.sqrMagnitude<.00000001f)smoothedBob=Vector3.zero;
-   view.transform.localPosition=eyeBase+smoothedBob;
+   view.transform.localPosition=Vector3.Lerp(view.transform.localPosition,eyeBase+smoothedBob,1-Mathf.Exp(-dt*14));
    view.transform.localRotation=Quaternion.Euler(pitch,0,Mathf.Sin(bobPhase*.5f)*.18f*bobWeight*carry);
   }
   Material HandMaterial(string name,Color color){
@@ -207,7 +217,7 @@ public bool RequestPickup(HotelItem item){
   Bounds HeldViewBounds(){
    bool found=false;var result=new Bounds();
    foreach(var renderer in handBoundsRenderers){
-    if(!renderer.enabled)continue;var b=renderer.localBounds;
+    if(!renderer.enabled||renderer is ParticleSystemRenderer||renderer is LineRenderer)continue;var b=renderer.localBounds;
     for(int x=-1;x<=1;x+=2)for(int y=-1;y<=1;y+=2)for(int z=-1;z<=1;z+=2){var p=view.transform.InverseTransformPoint(renderer.transform.TransformPoint(b.center+Vector3.Scale(b.extents,new Vector3(x,y,z))));if(!found){result=new Bounds(p,Vector3.zero);found=true;}else result.Encapsulate(p);}
    }
    if(!found)result=new Bounds(view.transform.InverseTransformPoint(held.transform.position),held.dimensions);return result;
@@ -227,21 +237,26 @@ public bool RequestPickup(HotelItem item){
    if(handRigs==null||!view)return;
    if(handSkin)handSkin.color=handSkinColor;
    if(held!=handBoundsOwner){handBoundsOwner=held;handBoundsRenderers=held?held.GetComponentsInChildren<Renderer>():System.Array.Empty<Renderer>();handGripColliders=held?held.GetComponentsInChildren<Collider>():System.Array.Empty<Collider>();handShaftRenderer=System.Array.Find(handBoundsRenderers,r=>r.name.Contains("Mop_Shaft"));}
-   float dt=Mathf.Clamp(Time.deltaTime,1f/120,.05f);throwGesture=Mathf.MoveTowards(throwGesture,0,dt*5);var bounds=held?HeldViewBounds():new Bounds();
+   float dt=Mathf.Min(Time.deltaTime,.05f);throwGesture=Mathf.MoveTowards(throwGesture,0,dt*5);var bounds=held?HeldViewBounds():new Bounds();
    bool twoHands=held&&(bounds.size.x>.27f||bounds.size.y>.43f||held.kind=="mop");bool showing=false;
    foreach(var rig in handRigs){
-    bool active=cart||(pendingPickup&&rig.side>0)||(held&&bounds.center.magnitude<1.8f&&(rig.side>0||twoHands));rig.weight=Mathf.MoveTowards(rig.weight,active?1:0,dt*(active?6:5));
+    bool actionHand=TryAnimationHandPose(rig.side,out var actionTarget,out var actionRotation,out float actionCurl);
+    bool active=cart||(pendingPickup&&rig.side>0)||(held&&bounds.center.magnitude<1.8f&&(rig.side>0||twoHands))||actionHand;
+    if(active&&rig.weight<=.001f){rig.palm.position=view.transform.TransformPoint(new Vector3(rig.side*.32f,-.54f,.14f));rig.palm.rotation=view.transform.rotation*Quaternion.Euler(55,rig.side*15,0);}
+    rig.weight=Mathf.MoveTowards(rig.weight,active?1:0,dt*(active?12:7));
     bool visible=rig.weight>.001f;showing|=visible;rig.palm.gameObject.SetActive(visible);if(!visible)continue;
     if(cart){
      var handle=activeTrolley?(rig.side<0?activeTrolley.leftHandle.position:activeTrolley.rightHandle.position):cart.transform.TransformPoint(new Vector3(-.46f,-cart.dimensions.y/2+1.08f,-rig.side*.16f));rig.target=handle-cart.transform.right*.04f-cart.transform.up*.025f;rig.rotation=Quaternion.LookRotation(cart.transform.up,cart.transform.right);
-    }else if(held){
+    }else if(held&&held.GetComponent<HotelFirearm>()&&actionHand){rig.target=actionTarget;rig.rotation=actionRotation;}else if((IsMaintaining||gesture==HotelPlayerGesture.Refill||gesture==HotelPlayerGesture.CollectCash)&&rig.side<0&&actionHand){rig.target=actionTarget;rig.rotation=actionRotation;}else if(held){
      rig.target=GripPoint(rig.side,bounds);var inward=(-view.transform.right*rig.side*.72f+view.transform.forward*.69f).normalized;rig.rotation=Quaternion.LookRotation(view.transform.up,inward);
-    }else if(pendingPickup){
-     var surface=pendingPickup.GetComponentInChildren<Renderer>();rig.target=surface?surface.bounds.ClosestPoint(view.transform.position):pendingPickup.transform.position;rig.rotation=view.transform.rotation*Quaternion.Euler(55,rig.side*15,0);
-    }
+    }else if(pendingPickup&&rig.side>0){
+     var surface=pendingPickup.GetComponentInChildren<Renderer>();rig.target=surface?surface.bounds.ClosestPoint(view.transform.position):pendingPickup.transform.position;rig.target=view.transform.position+Vector3.ClampMagnitude(rig.target-view.transform.position,.85f);rig.rotation=view.transform.rotation*Quaternion.Euler(55,rig.side*15,0);
+    }else if(actionHand){rig.target=actionTarget;rig.rotation=actionRotation;}
     var rest=view.transform.TransformPoint(new Vector3(rig.side*.32f,-.54f,.14f));float reach=Mathf.SmoothStep(0,1,rig.weight);
-    var gesture=view.transform.forward*(Mathf.Sin(throwGesture*Mathf.PI)*.13f);rig.palm.position=Vector3.Lerp(rest,rig.target+gesture,reach);rig.palm.rotation=Quaternion.Slerp(view.transform.rotation*Quaternion.Euler(55,rig.side*15,0),rig.rotation,reach);
-    rig.palm.localScale=Vector3.one;float curl=cart||handShaftRenderer||(held&&!twoHands)?1:.47f;AnimateFingers(rig,curl*Mathf.SmoothStep(0,1,Mathf.Clamp01((rig.weight-.15f)/.85f)));
+    var handPosition=Vector3.Lerp(rest,rig.target,reach);var handRotation=Quaternion.Slerp(view.transform.rotation*Quaternion.Euler(55,rig.side*15,0),rig.rotation,reach);
+    if(actionHand&&!held&&!cart&&!pendingPickup){rig.palm.position=Vector3.Lerp(rig.palm.position,handPosition,1-Mathf.Exp(-dt*24));rig.palm.rotation=Quaternion.Slerp(rig.palm.rotation,handRotation,1-Mathf.Exp(-dt*24));}
+    else{rig.palm.position=handPosition;rig.palm.rotation=handRotation;}
+    rig.palm.localScale=Vector3.one;float curl=held&&held.GetComponent<HotelFirearm>()&&actionHand?actionCurl:!held&&!cart&&actionHand?actionCurl:cart||handShaftRenderer||(held&&!twoHands)?1:.47f;AnimateFingers(rig,curl*Mathf.SmoothStep(0,1,Mathf.Clamp01((rig.weight-.15f)/.85f)));
     UpdateContinuousArm(rig);
    }
    hands.gameObject.SetActive(showing);
@@ -249,8 +264,8 @@ public bool RequestPickup(HotelItem item){
 
   public bool TryGetEmployeeGripPoints(out Vector3 left,out Vector3 right,out bool twoHands){
    left=right=Vector3.zero;twoHands=false;
-   if(cart){left=activeTrolley?activeTrolley.leftHandle.position:cart.transform.TransformPoint(new Vector3(-.46f,-cart.dimensions.y/2+1.08f,.16f))-cart.transform.right*.04f-cart.transform.up*.025f;right=activeTrolley?activeTrolley.rightHandle.position:cart.transform.TransformPoint(new Vector3(-.46f,-cart.dimensions.y/2+1.08f,-.16f))-cart.transform.right*.04f-cart.transform.up*.025f;twoHands=true;return true;}
-   if(!held)return false;
+   if(GrabbedGuest){left=GrabbedGuest.HeadPoint-view.transform.right*.16f;right=GrabbedGuest.HeadPoint+view.transform.right*.16f;twoHands=true;return true;}if(cart){left=activeTrolley?activeTrolley.leftHandle.position:cart.transform.TransformPoint(new Vector3(-.46f,-cart.dimensions.y/2+1.08f,.16f))-cart.transform.right*.04f-cart.transform.up*.025f;right=activeTrolley?activeTrolley.rightHandle.position:cart.transform.TransformPoint(new Vector3(-.46f,-cart.dimensions.y/2+1.08f,-.16f))-cart.transform.right*.04f-cart.transform.up*.025f;twoHands=true;return true;}
+   if(!held)return false;if(held.GetComponent<HotelFirearm>() is HotelFirearm firearm){firearm.HandPose(-1,out left,out _,out _);firearm.HandPose(1,out right,out _,out _);twoHands=true;return true;}
    if(held!=handBoundsOwner){handBoundsOwner=held;handBoundsRenderers=held.GetComponentsInChildren<Renderer>();handGripColliders=held.GetComponentsInChildren<Collider>();handShaftRenderer=System.Array.Find(handBoundsRenderers,r=>r.name.Contains("Mop_Shaft"));}
    var b=HeldViewBounds();twoHands=b.size.x>.27f||b.size.y>.43f||held.kind=="mop";left=GripPoint(-1,b);right=GripPoint(1,b);return true;
   }
@@ -311,8 +326,8 @@ public bool RequestPickup(HotelItem item){
    GUI.Label(new Rect(r.x,r.y-stroke,r.width,r.height),content,style);GUI.Label(new Rect(r.x,r.y+stroke,r.width,r.height),content,style);
    GUI.contentColor=old;GUI.Label(r,content,style);
   }
-  static bool HasInteraction(HotelItem item){if(!item)return false;if(item.GetComponent<HotelFloorMess>()||item.GetComponent<HotelCleaningCart>()||item.GetComponent<HotelWasteBin>()||item.GetComponent<HotelElevatorButton>())return true;switch(item.kind){case "door":return item.leaves!=null&&item.leaves.Length>0&&item.door!=null;case "lamp":return item.lamp!=null;case "water":return item.waterFixture!=null;case "pickup":case "mop":case "cart":case "seat":case "bell":return true;case "guest":return item.GetComponent<HotelGuestBot>()!=null;case "roomDelivery":case "laundry":case "serviceLift":case "barricade":case "defenseStock":return true;default:return false;}}
-  string ItemAction(HotelItem item){var mess=item.GetComponent<HotelFloorMess>();if(mess)return mess.ActionLabel;if(item.GetComponent<HotelWasteBin>())return "DISPOSE LITTER / EMPTY CART";if(item.GetComponent<HotelCleaningCart>())return held&&held.GetComponent<HotelCleaningTool>()?"RINSE MOP":held&&held.GetComponent<HotelFloorMess>()?"BAG LITTER":"PUSH CLEANING CART";var elevatorButton=item.GetComponent<HotelElevatorButton>();if(elevatorButton)return elevatorButton.ActionLabel;switch(item.kind){case "roomDelivery":return "DELIVER TAGGED ITEMS";case "laundry":return item.GetComponent<HotelLaundryMachine>().ActionLabel;case "serviceLift":return "USE SERVICE LIFT";case "barricade":return "BUILD BARRICADE";case "defenseStock":return "COLLECT SUPPLIES";case "guest":return item.GetComponent<HotelGuestBot>()?.ActionLabel??"TALK";case "door":return item.GetComponent<HotelAutomaticEntrance>()?"OPEN ENTRANCE":item.open?"CLOSE DOOR":"OPEN DOOR";case "lamp":return item.lampOn?"SWITCH OFF":"SWITCH ON";case "water":return item.waterFixture&&item.waterFixture.IsRunning?"TURN WATER OFF":"TURN WATER ON";case "seat":return "TAKE A SEAT";case "cart":return "PUSH CART";case "bell":return "RING BELL";default:return "PICK UP";}}
+  static bool HasInteraction(HotelItem item){if(!item)return false;if(item.GetComponent<HotelCash>()||item.GetComponent<HotelArmoryResupply>())return true;if(item.GetComponent<HotelFloorMess>()||item.GetComponent<HotelCleaningCart>()||item.GetComponent<HotelWasteBin>()||item.GetComponent<HotelElevatorButton>())return true;switch(item.kind){case "defenseLock":return true;case "door":return item.leaves!=null&&item.leaves.Length>0&&item.door!=null;case "lamp":return item.lamp!=null;case "water":return item.waterFixture!=null;case "maintenanceIncident":case "maintenanceRack":case "pickup":case "mop":case "cart":case "seat":case "bell":return true;case "guest":return item.GetComponent<HotelGuestBot>()!=null;case "roomDelivery":case "laundry":case "serviceLift":case "barricade":case "defenseStock":return true;default:return false;}}
+  string ItemAction(HotelItem item){if(item.GetComponent<HotelRoomDelivery>() is HotelRoomDelivery roomDoor&&roomDoor.Occupant)return "KNOCK ON DOOR";if(item.GetComponent<HotelDefenseLatch>() is HotelDefenseLatch latch)return latch.ActionLabel;if(item.GetComponent<HotelCleaningTool>() is HotelCleaningTool mop)return mop.DockedAt?"TAKE MOP":"PICK UP MOP";if(item.GetComponent<HotelCash>() is HotelCash cash)return "ACCEPT $"+cash.Amount;if(item.GetComponent<HotelArmoryResupply>())return "REFILL AMMUNITION";var incident=item.GetComponent<HotelMaintenanceIncident>();if(incident)return incident.ActionLabel;if(item.GetComponent<HotelMaintenanceRack>())return "REFILL / MAINTENANCE TOOLS";var mess=item.GetComponent<HotelFloorMess>();if(mess)return mess.ActionLabel;if(item.GetComponent<HotelWasteBin>())return "DISPOSE LITTER / EMPTY CART";if(item.GetComponent<HotelCleaningCart>())return held&&held.GetComponent<HotelCleaningTool>()?"RINSE MOP":held&&held.GetComponent<HotelFloorMess>()?"BAG LITTER":"PUSH CLEANING CART";var elevatorButton=item.GetComponent<HotelElevatorButton>();if(elevatorButton)return elevatorButton.ActionLabel;switch(item.kind){case "roomDelivery":return "DELIVER TAGGED ITEMS";case "laundry":return item.GetComponent<HotelLaundryMachine>().ActionLabel;case "serviceLift":return "USE SERVICE LIFT";case "barricade":return "BUILD BARRICADE";case "defenseStock":return "COLLECT SUPPLIES";case "guest":return item.GetComponent<HotelGuestBot>()?.ActionLabel??"TALK";case "door":return item.GetComponent<HotelAutomaticEntrance>()?"OPEN ENTRANCE":item.open?"CLOSE DOOR":"OPEN DOOR";case "lamp":return item.lampOn?"SWITCH OFF":"SWITCH ON";case "water":return item.waterFixture&&item.waterFixture.IsRunning?"TURN WATER OFF":"TURN WATER ON";case "seat":return "TAKE A SEAT";case "cart":return "PUSH CART";case "bell":return "RING BELL";default:return "PICK UP";}}
   static readonly Dictionary<string,string> uiModelNames=new(){
    {"BathroomBucket","Cleaning Bucket"},{"BathroomBuilt","Hand Soap"},{"BathroomTool","Dustpan"},{"Blue-Suitcase","Blue Suitcase"},
    {"CheckInBell","Reception Bell"},{"CreamSuitcase","Cream Suitcase"},{"CutlerySet","Cutlery"},{"DiningChair","Dining Chair"},
@@ -343,9 +358,9 @@ public bool RequestPickup(HotelItem item){
   }
   bool Interaction(out string name,out string action,out bool holding,out string doorAction){
    name=action=doorAction=null;holding=false;
-   if(seated){name=ItemName(seated);action="STAND UP";return true;}
+   if(DefenseWork&&DefenseWork.Equipped){var site=focused?focused.GetComponentInParent<HotelDefenseOpening>():null;if(site){name=site.label;action=focused.GetComponent<HotelDefenseLatch>() is HotelDefenseLatch lockPlate?lockPlate.ActionLabel:DefenseWork.ActionLabel;holding=true;return true;}}if(GrabbedGuest){name="GUEST HEAD GRIP";action="HOLD LEFT CLICK TO GRIP";holding=true;return true;}if(seated){name=ItemName(seated);action="STAND UP";return true;}
    if(cart){if(focused&&(focused.kind=="door"||focused.GetComponent<HotelRoomDelivery>()||focused.GetComponent<HotelServiceLift>()||focused.GetComponent<HotelElevatorButton>()||focused.GetComponent<HotelCleaningCart>()||focused.GetComponent<HotelWasteBin>())){name=ItemName(focused);action=ItemAction(focused);return true;}name=ItemName(cart);action="RELEASE CART";return true;}
-   if(held&&focused&&(focused.GetComponent<HotelFloorMess>()||focused.GetComponent<HotelCleaningCart>()||focused.GetComponent<HotelWasteBin>()||focused.kind=="guest"||focused.GetComponent<HotelRoomDelivery>()||focused.GetComponent<HotelLaundryMachine>()||focused.GetComponent<HotelServiceLift>()||focused.GetComponent<HotelElevatorButton>()||focused.GetComponent<HotelLuggageTrolley>()||held.GetComponent<HotelServiceTray>()&&focused.GetComponent<HotelGuestSupply>())){name=ItemName(focused);action=focused.GetComponent<HotelLuggageTrolley>()?"LOAD SUITCASE":held.GetComponent<HotelServiceTray>()&&focused.GetComponent<HotelGuestSupply>()?"LOAD TRAY":ItemAction(focused);holding=true;return true;}if(held){name=ItemName(held);action="PUT DOWN";holding=true;if(HasInteraction(focused)&&focused.kind=="door")doorAction=ItemAction(focused);return true;}
+   if(held&&held.GetComponent<HotelFirearm>() is HotelFirearm gun){name=ItemName(FirearmUtility(focused)?focused:held);action=FirearmUtility(focused)?ItemAction(focused):gun.Reloading?"RELOADING":"FIRE";holding=true;return true;}if(held&&focused&&(focused.GetComponent<HotelMaintenanceIncident>()||focused.GetComponent<HotelMaintenanceRack>()||focused.GetComponent<HotelFloorMess>()||focused.GetComponent<HotelCleaningCart>()||focused.GetComponent<HotelWasteBin>()||focused.kind=="guest"||focused.GetComponent<HotelRoomDelivery>()||focused.GetComponent<HotelLaundryMachine>()||focused.GetComponent<HotelServiceLift>()||focused.GetComponent<HotelElevatorButton>()||focused.GetComponent<HotelLuggageTrolley>()||held.GetComponent<HotelServiceTray>()&&focused.GetComponent<HotelGuestSupply>())){name=ItemName(focused);action=focused.GetComponent<HotelLuggageTrolley>()?"LOAD SUITCASE":held.GetComponent<HotelServiceTray>()&&focused.GetComponent<HotelGuestSupply>()?"LOAD TRAY":ItemAction(focused);holding=true;return true;}if(held){name=ItemName(held);action=PointerGripActive?"HOLD TO CARRY":"PUT DOWN";holding=true;if(HasInteraction(focused)&&focused.kind=="door")doorAction=ItemAction(focused);return true;}
    if(!HasInteraction(focused))return false;name=ItemName(focused);action=ItemAction(focused);return true;
   }
   void DrawInteraction(Rect safe){
@@ -361,15 +376,16 @@ public bool RequestPickup(HotelItem item){
     Bubble(new Rect(x+98,y-18,width-120,35),uiBlue,uiBlueBottom,13,3);
     Text(new Rect(x+104,y-19,width-132,35),uiLastAction,uiAction,uiBrown,1);
     Bubble(new Rect(x+17,y+15,66,66),uiBlue,uiBlueBottom,16,4);
-    uiKeyContent.text=uiLastHolding&&uiLastAction=="PUT DOWN"?"Q":"E";Text(new Rect(x+17,y+12,66,66),uiKeyContent.text,uiKey,uiBrown,1.5f);
+    uiKeyContent.text=uiLastAction!=null&&uiLastAction.StartsWith("E:")?"E":PointerGripActive?"LMB":uiLastHolding&&uiLastAction=="PUT DOWN"?"Q":"LMB";uiKey.fontSize=uiKeyContent.text=="LMB"?21:35;Text(new Rect(x+17,y+12,66,66),uiKeyContent.text,uiKey,uiBrown,1.5f);
     uiNameContent.text=uiLastName;uiTitle.fontSize=30;
     while(uiTitle.fontSize>19&&uiTitle.CalcSize(uiNameContent).x>width-126)uiTitle.fontSize--;
     GUI.Label(new Rect(x+101,y+26,width-122,49),uiNameContent,uiTitle);
     string hint=null;
     var opening=focused?focused.GetComponentInParent<HotelDefenseOpening>():null;
-    if(opening)hint=opening.BoardCount+"/4 boards   B Build   N Remove   T Repair";
-    else if(uiLastHolding)hint=held&&held.GetComponent<HotelWeapon>()?"LMB Hit   /   RMB Block":uiLastDoor==null?"SPACE  Throw":"SPACE Throw   /   E "+(uiLastDoor=="OPEN DOOR"?"Open door":"Close door");
+    if(opening)hint=opening.Status;
+    else if(focused&&focused.GetComponent<HotelMaintenanceIncident>())hint="J  Repair steps / tool location";else if(held&&held.GetComponent<HotelMaintenanceTool>())hint=held.GetComponent<HotelMaintenanceTool>().kind==MaintenanceToolKind.Extinguisher?"LMB Spray  /  "+Mathf.RoundToInt(100*held.GetComponent<HotelMaintenanceTool>().Charge/held.GetComponent<HotelMaintenanceTool>().capacity)+"%  /  LMB at rack refill":"Hold LMB at a fault  /  Q release  /  RMB throw";else if(held&&held.GetComponent<HotelFirearm>())hint="LMB Fire   /   R Reload   /   Q Put down   /   RMB Throw";else if(GrabbedGuest)hint="Release LMB  Let go   /   RMB  Throw guest";else if(focused&&focused.kind=="guest"&&!held)hint="Hold LMB on head  Grab   /   E  Reception / service";else if(PointerGripActive&&held)hint="Release LMB  Drop   /   RMB  Throw";else if(uiLastHolding)hint=held&&held.GetComponent<HotelWeapon>()?"LMB Hit   /   CTRL Block   /   RMB Throw":uiLastDoor==null?"RMB  Throw":"RMB Throw   /   LMB "+(uiLastDoor=="OPEN DOOR"?"Open door":"Close door");
     if(hint!=null)Text(new Rect(x-20,y+106,width+40,23),hint,uiBrand,uiBrown,1.2f);
+    if(DefenseWork&&DefenseWork.Equipped){Text(new Rect(x-20,y-47,width+40,23),(opening?"RMB Task / Hold LMB Work / Q Put down / Wood ":"Aim at glass or door / RMB Throw / Q Put down / Wood ")+combat.Wood,uiBrand,uiBrown,1.2f);if(DefenseWork.Working){Panel(new Rect(x+101,y+85,width-126,4),new Color(.36f,.20f,.13f,.2f),2);Rule(new Rect(x+101,y+85,(width-126)*DefenseWork.Progress,4),uiBlueBottom);}}
     var mess=focused?focused.GetComponent<HotelFloorMess>():null;
     if(mess&&mess.type==FloorMessType.Wet&&mess.Progress>0){Panel(new Rect(x+101,y+85,width-126,4),new Color(.36f,.20f,.13f,.2f),2);Rule(new Rect(x+101,y+85,(width-126)*mess.Progress,4),uiBlueBottom);}
    }
@@ -409,7 +425,7 @@ public bool RequestPickup(HotelItem item){
    Rule(new Rect(day.x+154,day.y+13,1,34),new Color(uiBrown.r,uiBrown.g,uiBrown.b,.2f));
    int seconds=Mathf.CeilToInt(hudHotel.PeriodRemaining);
    GUI.Label(new Rect(day.x+164,day.y+12,60,35),$"{seconds/60:0}:{seconds%60:00}",hudNumber);
-   int pending=hudHotel.serviceJobs?hudHotel.serviceJobs.PendingCount:0;
+   int pending=(hudHotel.serviceJobs?hudHotel.serviceJobs.PendingCount:0)+(Maintenance?Maintenance.ActiveCount:0);
    var jobs=new Rect(safe.xMax-184,safe.y+24,160,54);
    Bubble(jobs,jobsOpen?Color.white:uiCream,jobsOpen?uiCream:uiCreamBottom,17,3);
    Panel(new Rect(jobs.x+9,jobs.y+9,34,34),uiBlue,uiBlueBottom,9);
@@ -486,9 +502,10 @@ public bool RequestPickup(HotelItem item){
    Panel(new Rect(center.x-radius,center.y-3,radius*2,6),uiCream,3);Panel(new Rect(center.x-3,center.y-radius,6,radius*2),uiCream,3);GUI.matrix=matrix;
   }
   void DrawMenu(Rect safe){
+   if(settingsOpen){DrawSettingsMenu(safe);return;}
    if(employee&&employee.Ready){DrawEmployeeMenu(safe);return;}
    Rule(safe,new Color(.05f,.15f,.20f,.47f));
-   float width=Mathf.Min(466,safe.width-40);var r=new Rect(safe.center.x-width/2,safe.center.y-239,width,478);
+   float width=Mathf.Min(466,safe.width-40);var r=new Rect(safe.center.x-width/2,safe.center.y-285,width,570);
    Bubble(r,uiCream,uiCreamBottom,32,9);
    // A blue toy-like header with an orange backing ribbon.
    Bubble(new Rect(r.x-8,r.y+34,r.width+16,143),uiOrange,uiOrangeBottom,25,5);
@@ -500,13 +517,14 @@ public bool RequestPickup(HotelItem item){
    Star(new Vector2(r.x+31,r.y+74),9);Star(new Vector2(r.xMax-31,r.y+115),7);
    GUI.Label(new Rect(r.x+24,r.y+188,r.width-48,35),"Make yourself at home!",uiToast);
    float bx=r.x+37,bw=r.width-74;
-   if(MenuButton(new Rect(bx,r.y+246,bw,66),"LET'S PLAY",true))CaptureMouse();
+   if(MenuButton(new Rect(bx,r.y+246,bw,66),hasPlayed?"RESUME":"LET'S PLAY",true))CaptureMouse();
    if(MenuButton(new Rect(bx,r.y+329,bw,58),"START OVER",false)){ResetWorld();CaptureMouse();}
-   GUI.Label(new Rect(r.x+25,r.y+414,r.width-50,28),"ESC  Menu  |  E  Interact  |  J  Jobs",uiSmall);
+   if(MenuButton(new Rect(bx,r.y+417,bw,48),"SETTINGS & CONTROLS",false))settingsOpen=true;
+   GUI.Label(new Rect(r.x+25,r.y+502,r.width-50,28),"ENTER  Play  |  O  Settings  |  ESC  Back",uiSmall);
   }
   void DrawEmployeeMenu(Rect safe){
    Rule(safe,new Color(.05f,.15f,.20f,.63f));
-   float width=Mathf.Min(750,safe.width-36),height=650;var r=new Rect(safe.center.x-width/2,safe.center.y-height/2,width,height);
+   float width=Mathf.Min(750,safe.width-36),height=710;var r=new Rect(safe.center.x-width/2,safe.center.y-height/2,width,height);
    Bubble(r,uiCream,uiCreamBottom,28,7);
    Bubble(new Rect(r.x+20,r.y+18,width-40,77),uiBlue,uiBlueBottom,20,4);
    uiHeading.fontSize=36;Text(new Rect(r.x+20,r.y+20,width-40,70),"HOTEL TOGETHER",uiHeading,uiBrown,2);
@@ -521,11 +539,12 @@ public bool RequestPickup(HotelItem item){
     GUI.Label(new Rect(card.x+8,card.y+258,card.width-16,27),selected?"SELECTED":"SELECT",uiSmall);
     if(GUI.Button(card,GUIContent.none,GUIStyle.none))employee.SelectEmployee(i);
    }
-   GUI.Label(new Rect(r.x+20,r.y+476,width-40,28),"Look down to see your feet.  E to reach and grab.",uiSmall);
+   GUI.Label(new Rect(r.x+20,r.y+476,width-40,28),"LMB interact / hold props.  RMB throw.  SPACE jump.",uiSmall);
    float bw=(width-74)/2;
-   if(MenuButton(new Rect(r.x+26,r.y+525,bw,61),"LET'S PLAY",true))CaptureMouse();
+   if(MenuButton(new Rect(r.x+26,r.y+525,bw,61),hasPlayed?"RESUME":"LET'S PLAY",true))CaptureMouse();
    if(MenuButton(new Rect(r.x+48+bw,r.y+525,bw,61),"START OVER",false)){ResetWorld();CaptureMouse();}
-   GUI.Label(new Rect(r.x+20,r.y+608,width-40,25),"LEFT / RIGHT  Choose  |  ESC  Menu  |  J  Jobs",uiSmall);
+   if(MenuButton(new Rect(r.x+26,r.y+606,width-52,42),"SETTINGS & CONTROLS",false))settingsOpen=true;
+   GUI.Label(new Rect(r.x+20,r.y+672,width-40,25),"LEFT / RIGHT  Choose  |  ENTER  Play  |  O  Settings",uiSmall);
    if(Time.unscaledTime<messageUntil)GUI.Label(new Rect(r.x+20,r.yMax+16,width-40,35),message,uiToast);
   }
   bool MenuButton(Rect r,string label,bool primary){
@@ -535,16 +554,16 @@ public bool RequestPickup(HotelItem item){
    // Stable IDs and dedicated contents prevent stale label/key geometry as the target changes.
    return GUI.Button(r,GUIContent.none,GUIStyle.none);
   }
-  void OnGUI(){
+  void OnGUI(){if(Economy&&Economy.ModalOpen)return;
    PrepareInterface();var matrix=GUI.matrix;var color=GUI.color;var content=GUI.contentColor;
-   float scale=Mathf.Clamp(Mathf.Min(Screen.width/1440f,Screen.height/900f),.45f,2f);
+   float scale=Mathf.Clamp(Mathf.Min(Screen.width/1440f,Screen.height/900f),.1f,2f);
    GUI.matrix=Matrix4x4.TRS(Vector3.zero,Quaternion.identity,Vector3.one*scale);GUI.color=GUI.contentColor=Color.white;
    var a=Screen.safeArea;var safe=new Rect(a.x/scale,(Screen.height-a.yMax)/scale,a.width/scale,a.height/scale);
-   if(Cursor.lockState==CursorLockMode.Locked){DrawHud(safe);if(combat&&combat.IsDown)DrawDowned(safe);else DrawInteraction(safe);DrawNotice(safe);}else{uiOpacity=0;DrawMenu(safe);}
+   if(Cursor.lockState==CursorLockMode.Locked){DrawHud(safe);DrawMaintenanceHud(safe);DrawDefenseHud(safe);if(combat&&combat.IsDown)DrawDowned(safe);else DrawInteraction(safe);DrawNotice(safe);DrawGuestSpeech(safe);}else{uiOpacity=0;DrawMenu(safe);}
    GUI.matrix=matrix;GUI.color=color;GUI.contentColor=content;
   }
-  public void PlayStrikeGesture(){throwGesture=1;if(employee&&employee.Avatar)employee.Avatar.ThrowGesture();}public void Incapacitate(){Drop();EndCart();if(seated)Stand();eyeBase=new Vector3(standingEyeBase.x,standingEyeBase.y*.55f,standingEyeBase.z);}public void Recover(){if(view){eyeBase=standingEyeBase;view.transform.localPosition=eyeBase;}}
-  void OnDestroy(){foreach(var surface in uiSurfaces.Values)if(surface)Destroy(surface);uiSurfaces.Clear();if(uiOwnFont&&font)Destroy(font);foreach(var mesh in handMeshes)if(mesh)Destroy(mesh);if(handSkin)Destroy(handSkin);if(handSleeve)Destroy(handSleeve);if(referenceHandMesh)Destroy(referenceHandMesh);if(anchor)Destroy(anchor.gameObject);if(hands)Destroy(hands.gameObject);}
+  public void PlayStrikeGesture(){PlayGesture(HotelPlayerGesture.Strike,view.transform.position+view.transform.forward);}public void Incapacitate(){CancelMouseGrip();ReleaseGuest(false);Drop();EndCart();if(seated)Stand();gesture=HotelPlayerGesture.None;eyeBase=new Vector3(standingEyeBase.x,standingEyeBase.y*.55f,standingEyeBase.z);}public void Recover(){if(view){eyeBase=standingEyeBase;PlayGesture(HotelPlayerGesture.Recover,transform.position);}}
+  void OnDestroy(){DisposeFeedback();foreach(var surface in uiSurfaces.Values)if(surface)Destroy(surface);uiSurfaces.Clear();if(uiOwnFont&&font)Destroy(font);foreach(var mesh in handMeshes)if(mesh)Destroy(mesh);if(handSkin)Destroy(handSkin);if(handSleeve)Destroy(handSleeve);if(referenceHandMesh)Destroy(referenceHandMesh);if(anchor)Destroy(anchor.gameObject);if(hands)Destroy(hands.gameObject);}
 
  }
 }

@@ -59,7 +59,7 @@ namespace HotelTogether
 
         void Update()
         {
-            if (!initialized || Cursor.lockState == CursorLockMode.Locked || Keyboard.current == null || employees == null) return;
+            if (!initialized || Cursor.lockState == CursorLockMode.Locked || player.SettingsOpen || Keyboard.current == null || employees == null || employees.Length == 0) return;
             if (Keyboard.current.leftArrowKey.wasPressedThisFrame) SelectEmployee((SelectedIndex + employees.Length - 1) % employees.Length);
             if (Keyboard.current.rightArrowKey.wasPressedThisFrame) SelectEmployee((SelectedIndex + 1) % employees.Length);
         }

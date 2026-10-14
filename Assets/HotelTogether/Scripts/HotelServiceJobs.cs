@@ -23,6 +23,16 @@ namespace HotelTogether
         readonly Dictionary<HotelGuestBot,Work> work=new();
         HotelServiceGuide guide;float guideRefresh;
         public HotelServiceGuide Guide => guide;
+        void Start()
+        {
+            for(int i=0;i<receivers.Length;i++)
+            {
+                var old=receivers[i];if(!old)continue;var door=hotel.rooms[i].door;
+                var receiver=door.GetComponent<HotelRoomDelivery>();if(!receiver)receiver=door.gameObject.AddComponent<HotelRoomDelivery>();
+                receiver.jobs=this;receiver.roomIndex=i;receiver.deposit=old.deposit;receivers[i]=receiver;
+                if(old!=receiver)old.gameObject.SetActive(false);
+            }
+        }
         public int PendingCount
         {
             get
@@ -37,7 +47,7 @@ namespace HotelTogether
                 return count;
             }
         }
-        public string LuggageStatus(HotelGuestBot guest)=>work.TryGetValue(guest,out var entry)?entry.bagDone?"Luggage delivered":"Deliver luggage to Room "+guest.RoomLabel:"";
+        public string LuggageStatus(HotelGuestBot guest)=>work.TryGetValue(guest,out var entry)?entry.bagDone?"Luggage delivered":guest.CollectingLuggage?"Guest collecting luggage":entry.bag&&NearDoor(entry.bag,receivers[guest.RoomIndex])?"At door - waiting for guest":"Deliver luggage to Room "+guest.RoomLabel:"";
         public void CheckIn(HotelGuestBot guest)
         {
             if(work.ContainsKey(guest))return;int slot=0;var occupied=new HashSet<int>();foreach(var existing in work.Values)if(!existing.bagDone)occupied.Add(existing.receptionSlot);while(occupied.Contains(slot))slot++;
@@ -57,9 +67,12 @@ namespace HotelTogether
         public bool DeliverRoom(HotelPlayer player,HotelRoomDelivery receiver)
         {
             if(Vector3.Distance(player.transform.position,receiver.transform.position)>3.2f)return false;
-            var room=hotel.rooms[receiver.roomIndex];var defense=room.door.GetComponent<HotelDefenseOpening>();
-            if(defense&&defense.BoardCount>0||!room.door.open&&!(defense&&defense.Broken)){player.Notify("Open the room door before delivering. Remove any barricade first.");return false;}
             bool done=false;var carried=player.held?player.held.GetComponent<HotelGuestDelivery>():null;
+            if(carried&&carried.type==GuestDeliveryType.CleanLaundry)
+            {
+                var room=hotel.rooms[receiver.roomIndex];var defense=room.door.GetComponent<HotelDefenseOpening>();
+                if(!receiver.CanCollect||!room.door.open&&!(defense&&defense.Broken)){player.Notify("Open and clear the room door before returning clean linen.");return false;}
+            }
             if(carried){if(carried.Owner&&carried.Owner.RoomIndex==receiver.roomIndex&&carried.type!=GuestDeliveryType.DirtyLaundry){player.Drop();done=Complete(carried,receiver);}else{player.Notify("Wrong room or dirty linen. Check the guest tag.");return false;}}
             foreach(var trolley in trolleys)
             {
@@ -69,16 +82,57 @@ namespace HotelTogether
             }
             if(!done)player.Notify("Bring this room's tagged suitcase or clean linen here.");return done;
         }
+        public bool StaffDeliver(HotelGuestDelivery item,HotelRoomDelivery receiver,Vector3 position){if(!item||!receiver||!receiver.CanCollect||Vector3.Distance(position,receiver.Doorstep)>2.5f)return false;item.ReleaseAttachment();return Complete(item,receiver);}
         bool Complete(HotelGuestDelivery delivery,HotelRoomDelivery receiver)
         {
             var guest=delivery.Owner;if(!guest||!work.TryGetValue(guest,out var entry))return false;
-            if(delivery.type==GuestDeliveryType.Luggage){if(entry.bagDone)return false;entry.bagDone=true;BagsDelivered++;guest.ReceiveLuggage();}
+            if(delivery.type==GuestDeliveryType.Luggage)
+            {
+                if(entry.bagDone||entry.bag!=delivery||guest.CollectingLuggage)return false;
+                delivery.Detach();delivery.ReleaseAttachment();delivery.transform.SetParent(transform,true);
+                PlaceBag(delivery,receiver.Doorstep,Quaternion.LookRotation(receiver.Inward));
+                hotel.player.Notify("Suitcase placed outside Room "+guest.RoomLabel+". The guest will come out to collect it. Unlock / clear the door if needed.");return true;
+            }
             else if(delivery.type==GuestDeliveryType.CleanLaundry){if(entry.linenDone)return false;entry.linenDone=true;LaundryReturned++;}
             else return false;
             Completed++;hotel.RecordService(guest,delivery.type==GuestDeliveryType.Luggage?15:12);
             delivery.transform.SetParent(transform,true);delivery.transform.SetPositionAndRotation(receiver.deposit.position+(delivery.type==GuestDeliveryType.Luggage?receiver.deposit.right*.4f-Vector3.up*.095f:Vector3.zero),receiver.deposit.rotation);
             delivery.GetComponent<Rigidbody>().isKinematic=true;foreach(var c in delivery.GetComponentsInChildren<Collider>())c.enabled=false;delivery.GetComponent<HotelItem>().enabled=false;
             hotel.player.Notify("Delivered "+delivery.Label+". Keep the trolley clear of the doorway.");return true;
+        }
+        public static void PlaceBag(HotelGuestDelivery bag,Vector3 floor,Quaternion rotation)
+        {
+            var body=bag.GetComponent<Rigidbody>();body.isKinematic=true;body.interpolation=RigidbodyInterpolation.None;
+            bag.SetPose(floor,rotation);Physics.SyncTransforms();float bottom=float.PositiveInfinity;
+            foreach(var c in bag.GetComponentsInChildren<Collider>())if(c.enabled&&!c.isTrigger)bottom=Mathf.Min(bottom,c.bounds.min.y);
+            if(float.IsPositiveInfinity(bottom))foreach(var r in bag.GetComponentsInChildren<Renderer>())if(r.enabled&&!r.GetComponent<TextMesh>())bottom=Mathf.Min(bottom,r.bounds.min.y);
+            if(float.IsPositiveInfinity(bottom))bottom=floor.y;
+            bag.SetPose(bag.transform.position+Vector3.up*(floor.y+.025f-bottom),rotation);
+            body.isKinematic=false;body.useGravity=true;body.linearVelocity=body.angularVelocity=Vector3.zero;
+        }
+        public bool StaffBagAvailable(HotelGuestDelivery bag)=>bag&&bag.Owner&&bag.Owner.RoomIndex>=0&&HasPendingBag(bag.Owner)&&!NearDoor(bag,receivers[bag.Owner.RoomIndex]);
+        bool NearDoor(HotelGuestDelivery bag,HotelRoomDelivery receiver)
+        {
+            if(!bag||bag.Attached||bag.Trolley||hotel.player.held==bag.GetComponent<HotelItem>())return false;
+            var delta=bag.transform.position-receiver.Doorstep;return Mathf.Abs(delta.y)<1.1f&&new Vector2(delta.x,delta.z).magnitude<1.15f&&bag.GetComponent<Rigidbody>().linearVelocity.sqrMagnitude<.3f;
+        }
+        public void ScanLuggage()
+        {
+            if(hotel.player&&hotel.player.GameplayPaused)return;
+            foreach(var pair in work)
+            {
+                var guest=pair.Key;var entry=pair.Value;if(!guest||!guest.CheckedIn)continue;
+                var receiver=receivers[guest.RoomIndex];
+                if(!receiver.KnockPending&&guest.Activity!=GuestActivity.AtDoor)continue;
+                if(!entry.bagDone&&NearDoor(entry.bag,receiver)){if(guest.TryCollectLuggage(entry.bag,receiver))receiver.Answered();}
+                else if(receiver.KnockPending&&guest.TryAnswerDoor(receiver))receiver.Answered();
+            }
+        }
+        public bool FinishLuggage(HotelGuestBot guest,HotelGuestDelivery bag)
+        {
+            if(!guest||!bag||bag.Owner!=guest||!work.TryGetValue(guest,out var entry)||entry.bag!=bag||entry.bagDone)return false;
+            entry.bagDone=true;BagsDelivered++;Completed++;hotel.RecordService(guest,15);
+            hotel.player.Notify(guest.guestName+" collected the suitcase for Room "+guest.RoomLabel+".");return true;
         }
         public void RecordMeal(){Completed++;MealsServed++;}
         public void RecordCleaning(){Completed++;}
@@ -96,8 +150,9 @@ namespace HotelTogether
         }
         void Update()
         {
-            if(!hotel.Running||Keyboard.current==null||hotel.player.combat&&hotel.player.combat.IsDown)return;
-            if(Time.time>=guideRefresh){guide=HotelServiceGuidance.Build(this,hotel.player);guideRefresh=Time.time+.15f;}
+            if(!hotel.Running||hotel.player.combat&&hotel.player.combat.IsDown)return;
+            if(Time.time>=guideRefresh){ScanLuggage();guide=HotelServiceGuidance.Build(this,hotel.player);guideRefresh=Time.time+.15f;}
+            if(Keyboard.current==null)return;
             if(Keyboard.current.gKey.wasPressedThisFrame){var trolley=hotel.player.cart?hotel.player.cart.GetComponent<HotelLuggageTrolley>():hotel.player.FocusedItem?hotel.player.FocusedItem.GetComponent<HotelLuggageTrolley>():null;if(trolley){if(hotel.player.held)trolley.Load(hotel.player);else trolley.Unload(hotel.player);}}
         }
     }

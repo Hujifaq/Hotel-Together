@@ -12,6 +12,8 @@ namespace HotelTogether
         public AudioClip waterSound;
         public float volume = .28f;
         public bool IsRunning { get; private set; }
+        public bool MaintenanceIsolated { get; private set; }
+        public void SetMaintenanceIsolation(bool isolated){MaintenanceIsolated=isolated;if(isolated)SetRunning(false);}
         public int LiveParticles => (drops ? drops.particleCount : 0) + (splashes ? splashes.particleCount : 0);
         ParticleSystem drops, splashes;
         LineRenderer stream;
@@ -25,7 +27,7 @@ namespace HotelTogether
         public void Toggle() { SetRunning(!IsRunning); }
         public void SetRunning(bool running)
         {
-            if (running && !isActiveAndEnabled) return;
+            if (running && (!isActiveAndEnabled || MaintenanceIsolated)) return;
             if (running && !initialized) Initialize();
             IsRunning = running;
             if (!initialized) return;

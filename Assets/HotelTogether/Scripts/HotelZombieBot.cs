@@ -8,19 +8,21 @@ namespace HotelTogether
     {
         public HotelGuestVisual visual;
         public float Health {get;private set;}
+        public float MaxHealth {get;private set;}
         public bool Alive=>Health>0;
         public HotelHuman Target {get;private set;}
         public string State {get;private set;}="Approaching";
         public NavMeshAgent Agent {get;private set;}
         HotelZombieDirector director;HotelDefenseOpening entry,assault;
-        bool inside,assaultFromInside;float think,attackTime,stunned,animationTime;Vector3 lastPosition;
+        bool inside,assaultFromInside;float think,attackTime,stunned,animationTime,deathStarted;Vector3 lastPosition;
+        Vector3 visualHome;Quaternion visualRotation;
         public void Initialize(HotelZombieDirector owner,float health)
-        {director=owner;Health=health;Agent=GetComponent<NavMeshAgent>();Agent.speed=1.1f+Mathf.Min(.45f,(owner.hotel.DayNumber-1)*.045f);lastPosition=transform.position;}
+        {director=owner;Health=MaxHealth=health;Agent=GetComponent<NavMeshAgent>();Agent.speed=1.1f+Mathf.Min(.45f,(owner.hotel.DayNumber-1)*.045f);lastPosition=transform.position;if(visual){visualHome=visual.transform.localPosition;visualRotation=visual.transform.localRotation;}var bar=GetComponent<HotelTargetHealthBar>();if(!bar)bar=gameObject.AddComponent<HotelTargetHealthBar>();bar.Initialize(null,this,owner.hotel.player);}
         public void Damage(float amount,Vector3 direction)
         {
-            if(!Alive||!director||!director.Running)return;Health=Mathf.Max(0,Health-amount);stunned=Time.time+.30f;
+            if(!Alive||!director||!float.IsFinite(amount)||amount<=0)return;Health=Mathf.Max(0,Health-amount);stunned=Time.time+.30f;
             if(Agent.isOnNavMesh){Agent.isStopped=true;var filter=new NavMeshQueryFilter{agentTypeID=Agent.agentTypeID,areaMask=Agent.areaMask};if(NavMesh.SamplePosition(transform.position+direction.normalized*.18f,out var hit,.4f,filter))Agent.Warp(hit.position);}
-            if(!Alive){Agent.enabled=false;foreach(var collider in GetComponents<Collider>())collider.enabled=false;visual.transform.localPosition=Vector3.down*.3f;visual.transform.localRotation=Quaternion.Euler(0,0,85);State="Defeated";director.Kill(this);Destroy(gameObject,4);}
+            if(!Alive){deathStarted=Time.time;Agent.enabled=false;foreach(var collider in GetComponents<Collider>())collider.enabled=false;State="Defeated";if(visual)gameObject.AddComponent<HotelZombieDeathPhysics>().Initialize(visual,direction);director.Kill(this);Destroy(gameObject,20);}
         }
         void Update()
         {
@@ -76,9 +78,12 @@ namespace HotelTogether
         void Face(Vector3 point){var direction=point-transform.position;direction.y=0;if(direction.sqrMagnitude>.01f)transform.rotation=Quaternion.LookRotation(direction);}
         void LateUpdate()
         {
-            if(!director||!visual||!Alive)return;float dt=director.Running?Time.deltaTime:0;animationTime+=dt;var delta=transform.position-lastPosition;lastPosition=transform.position;float speed=delta.sqrMagnitude>1?0:delta.magnitude/Mathf.Max(.001f,Time.deltaTime);
+            if(!director||!visual)return;float dt=director.Running?Time.deltaTime:0;if(dt<=0)return;
+            if(!Alive)return;
+            animationTime+=dt;var delta=transform.position-lastPosition;lastPosition=transform.position;float speed=delta.sqrMagnitude>1?0:delta.magnitude/Mathf.Max(.001f,Time.deltaTime);
             visual.Pose(director.Running?speed:0,dt,false,false,false,.4f,false);float reach=State=="Breaking in"||State=="Attacking"?Mathf.Sin(animationTime*6)*18:Mathf.Sin(animationTime*2)*5;
             visual.leftArm.localRotation=Quaternion.Euler(-68+reach,0,15);visual.rightArm.localRotation=Quaternion.Euler(-73-reach,0,-15);visual.leftForearm.localRotation=Quaternion.Euler(-18,0,0);visual.rightForearm.localRotation=Quaternion.Euler(-22,0,0);visual.head.localRotation=Quaternion.Euler(8,0,Mathf.Sin(animationTime)*6);
+            if(Time.time<stunned){float recoil=Mathf.Sin((stunned-Time.time)/.30f*Mathf.PI);visual.head.localRotation*=Quaternion.Euler(-12*recoil,0,0);visual.hips.localPosition+=Vector3.back*(recoil*.055f);}
         }
         void OnCollisionEnter(Collision collision)
         {var rb=collision.rigidbody;if(!rb||rb.gameObject.layer==9||!rb.GetComponent<HotelWeapon>()||collision.relativeVelocity.magnitude<3)return;Damage(Mathf.Min(35,collision.relativeVelocity.magnitude*4),(transform.position-collision.transform.position).normalized);}

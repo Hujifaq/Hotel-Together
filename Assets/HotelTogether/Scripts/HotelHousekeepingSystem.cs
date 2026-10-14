@@ -11,6 +11,7 @@ namespace HotelTogether
         public HotelWasteBin[] bins;
         public HotelFloorMess[] authored;
         public HotelFloorMess wetPrefab, litterPrefab;
+        public Renderer[] legacyLobbyWater = System.Array.Empty<Renderer>();
         public HotelWaterFixture[] waterSources;
         public HotelDetergentBottle[] detergent;
         public int Completed { get; private set; }
@@ -18,10 +19,15 @@ namespace HotelTogether
         float[] waterTimers;
         public HotelFloorMess ActiveMop { get { foreach(var m in authored)if(m&&m.Mopping)return m;foreach(var m in spawned)if(m&&m.Mopping)return m;return null; } }
         public int Pending { get { int count=0;foreach(var m in authored)if(m&&!m.Cleared)count++;foreach(var m in spawned)if(m&&!m.Cleared)count++;return count; } }
-        void Awake() { waterTimers = new float[waterSources.Length]; foreach(var cart in carts)if(cart)cart.ResetCart(); }
+        void Awake() { waterTimers = new float[waterSources.Length]; foreach(var cart in carts)if(cart)cart.ResetCart();foreach(var r in legacyLobbyWater)if(r)r.enabled=false; }
         public void CompletedMess(HotelFloorMess mess) { Completed++; hotel.RecordHousekeeping(5);if(hotel.serviceJobs)hotel.serviceJobs.RecordCleaning(); }
         public HotelCleaningCart NearestCart(Vector3 position) { HotelCleaningCart best=null;foreach(var c in carts)if(c&&(!best||Vector3.Distance(position,c.transform.position)<Vector3.Distance(position,best.transform.position)))best=c;return best; }
         public HotelFloorMess NearestMess(Vector3 position) { HotelFloorMess best=null;foreach(var m in authored)if(m&&!m.Cleared&&(!best||Vector3.Distance(position,m.transform.position)<Vector3.Distance(position,best.transform.position)))best=m;foreach(var m in spawned)if(m&&!m.Cleared&&(!best||Vector3.Distance(position,m.transform.position)<Vector3.Distance(position,best.transform.position)))best=m;return best; }
+        public HotelFloorMess WetAt(Vector3 point)
+        {
+            foreach(var m in authored)if(m&&m.ContainsFloorPoint(point))return m;
+            foreach(var m in spawned)if(m&&m.ContainsFloorPoint(point))return m;return null;
+        }
         public HotelFloorMess SpawnMess(FloorMessType type, Vector3 point)
         {
             spawned.RemoveAll(m=>!m); int live=0;foreach(var m in spawned)if(!m.Cleared)live++; if(live>=12)return null;
@@ -52,7 +58,7 @@ namespace HotelTogether
         {
             if(!hotel.Running||hotel.player.combat&&hotel.player.combat.IsDown)return;
             var p=hotel.player;
-            if(Keyboard.current!=null&&Keyboard.current.gKey.wasPressedThisFrame){var item=p.cart?p.cart:p.FocusedItem;var cart=item?item.GetComponent<HotelCleaningCart>():null;if(cart)cart.ToggleMop(p);}
+            if(Keyboard.current!=null&&Keyboard.current.gKey.wasPressedThisFrame){var item=p.cart?p.cart:p.FocusedItem;var cart=item?item.GetComponent<HotelCleaningCart>():null;if(!cart&&item)cart=item.GetComponent<HotelCleaningTool>()?.DockedAt;if(cart)cart.ToggleMop(p);}
             for(int i=0;i<waterSources.Length;i++)
             {
                 var source=waterSources[i];if(!source||!source.IsRunning){waterTimers[i]=0;continue;}

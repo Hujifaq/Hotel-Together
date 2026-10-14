@@ -17,13 +17,16 @@ namespace HotelTogether
         public Vector3 receptionPoint=new Vector3(-5.65f,.025f,-3.6f);
         public int maxGuests=6;
         public float daySeconds=180,nightSeconds=180,arrivalInterval=26;
+        public float checkInPatience=120;
         public Light sun;
         public HotelPlayer player;
         public HotelServiceJobs serviceJobs;
         public HotelGuestWaterStation waterStation;
         public HotelElevator[] elevators;
+        public HotelMaintenanceSystem Maintenance { get; private set; }
+        public HotelEconomy Economy {get;private set;}
         public IReadOnlyList<HotelGuestBot> Guests=>guests;
-        public bool Running=>enabled&&player&&Cursor.lockState==CursorLockMode.Locked;
+        public bool Running=>enabled&&player&&player.GameplayInputEnabled;
         public bool IsNight=>elapsed>=daySeconds;
         public int DayNumber { get; private set; }=1;
         public float PeriodRemaining=>Mathf.Max(0,(IsNight?daySeconds+nightSeconds:daySeconds)-elapsed);
@@ -46,6 +49,9 @@ namespace HotelTogether
         static readonly string[] Names={"Milo","Noah","Leo","Theo","Finn","Alex","Jamie","Robin","Sam","Riley","Luca","Avery"};
         void Awake()
         {
+            Maintenance=GetComponent<HotelMaintenanceSystem>();if(!Maintenance)Maintenance=gameObject.AddComponent<HotelMaintenanceSystem>();
+            if(!GetComponent<HotelArmory>())gameObject.AddComponent<HotelArmory>();
+            Economy=GetComponent<HotelEconomy>();if(!Economy)Economy=gameObject.AddComponent<HotelEconomy>();if(!GetComponent<HotelEconomyUI>())gameObject.AddComponent<HotelEconomyUI>();
             if(!player)player=FindFirstObjectByType<HotelPlayer>();
             if(!serviceJobs)serviceJobs=GetComponent<HotelServiceJobs>();
             doors=FindObjectsByType<HotelItem>(FindObjectsSortMode.None);
@@ -55,14 +61,16 @@ namespace HotelTogether
         void Update()
         {
             if(!Running)return;
-            bool wasNight=IsNight;elapsed+=Time.deltaTime;
-            if(elapsed>=daySeconds+nightSeconds){elapsed-=daySeconds+nightSeconds;DayNumber++;}
+            bool wasNight=IsNight;AdvanceClock(Time.deltaTime);if(!Running)return;
+
             if(wasNight!=IsNight){foreach(var guest in guests.ToArray())if(guest)guest.OnPeriodChanged();nextArrival=elapsed+7;}
             if(!IsNight&&elapsed>=nextArrival)
             {nextArrival=elapsed+arrivalInterval;if(guests.Count<maxGuests&&FindFreeRoom()>=0)SpawnGuest();}
             if(Time.time>=supplyTick){Restock();supplyTick=Time.time+2;}
             UpdateLighting();
         }
+        public void SetCareerDay(int value){DayNumber=Mathf.Max(1,value);elapsed=0;}
+        public void AdvanceClock(float dt){if(dt<=0||!float.IsFinite(dt))return;elapsed+=dt;if(elapsed>=daySeconds+nightSeconds){elapsed=Mathf.Min(elapsed-(daySeconds+nightSeconds),daySeconds*.1f);Economy?.FinishDay(DayNumber);DayNumber++;}}
         public HotelGuestBot SpawnGuest()
         {
             if(guestPrefabs==null||guestPrefabs.Length==0||guests.Count>=maxGuests)return null;
@@ -78,8 +86,9 @@ namespace HotelTogether
         public void LeaveQueue(HotelGuestBot guest){queue.Remove(guest);foreach(var g in queue)if(g)g.RepositionQueue();}
         public int FindFreeRoom()
         {
-            for(int i=0;i<rooms.Length;i++){bool occupied=false;foreach(var g in guests)if(g&&g.RoomIndex==i){occupied=true;break;}if(!occupied)return i;}return -1;
+            for(int i=0;i<rooms.Length;i++)if(RoomAvailable(i,null))return i;return -1;
         }
+        public bool RoomAvailable(int room,HotelGuestBot owner){if(room<0||room>=rooms.Length)return false;foreach(var g in guests)if(g&&g!=owner&&(g.RoomIndex==room||g.PendingRoomIndex==room))return false;return true;}
         public int AcquireSeat(HotelGuestBot guest,bool dining)
         {
             for(int i=0;i<seats.Length;i++)if(seats[i].dining==dining&&!occupiedSeats.ContainsKey(i)&&(!player||player.seated!=seats[i].chair)){occupiedSeats[i]=guest;return i;}return -1;
@@ -92,18 +101,19 @@ namespace HotelTogether
             if(serviceJobs)serviceJobs.Forget(guest);
             guests.Remove(guest);LeaveQueue(guest);if(guest.SeatIndex>=0)ReleaseSeat(guest.SeatIndex,guest);ShowMeal(guest,false);
         }
-        public void OpenNearbyDoors(Vector3 position)
+        public void OpenNearbyDoors(Vector3 position,HotelGuestBot requester=null)
         {
             foreach(var door in doors)
             {
-                if(!door||door.kind!="door"||Mathf.Abs(door.transform.position.y-position.y)>2)continue;
+                if(!door||door.kind!="door"||Mathf.Abs(door.transform.position.y-position.y)>2)continue;var privateRoom=door.GetComponent<HotelRoomDelivery>();if(privateRoom&&(!requester||requester.RoomIndex!=privateRoom.roomIndex))continue;
                 var delta=door.transform.position-position;delta.y=0;if(delta.sqrMagnitude>9)continue;
-                var defense=door.GetComponent<HotelDefenseOpening>();if(defense&&(defense.BoardCount>0||IsNight))continue;
+                var defense=door.GetComponent<HotelDefenseOpening>();if(defense&&(!defense.CanOpen||IsNight))continue;
                 var entrance=door.GetComponent<HotelAutomaticEntrance>();if(entrance)entrance.RequestOpen();else door.open=true;
             }
         }
-        public void RecordHousekeeping(int tip){Services++;Tips+=tip;}
-        public void RecordService(HotelGuestBot guest,int baseTip){Services++;Tips+=Mathf.RoundToInt(baseTip*Mathf.Lerp(.3f,1,guest.Satisfaction));}
+        public void AddCollectedTip(int value){Tips+=Mathf.Max(0,value);}
+        public void RecordHousekeeping(int tip,bool repair=false){Services++;Tips+=tip;Economy?.Housekeeping(tip,repair);}
+        public void RecordService(HotelGuestBot guest,int baseTip,bool offerTip=true){Services++;if(Economy&&Economy.Initialized)Economy.Service(guest,baseTip,offerTip);else Tips+=Mathf.RoundToInt(baseTip*Mathf.Lerp(.3f,1,guest.Satisfaction));}
         void Restock()
         {
             supplies.RemoveAll(s=>!s);
@@ -125,6 +135,8 @@ namespace HotelTogether
         }
         public void ResetSimulation()
         {
+            Economy?.ResetCareer();GetComponent<HotelArmory>()?.ResetArmory();
+            if(Maintenance&&Maintenance.Initialized)Maintenance.ResetMaintenance();
             if(waterStation)waterStation.ResetStation();
             if(serviceJobs)serviceJobs.ResetJobs();
             foreach(var guest in guests.ToArray())if(guest)Destroy(guest.gameObject);guests.Clear();queue.Clear();occupiedSeats.Clear();

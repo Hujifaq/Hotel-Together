@@ -9,9 +9,9 @@ namespace HotelTogether {
   float keepOpenUntil, nextPlayerSearch;
   HotelDefenseOpening defense;HotelZombieDirector danger;
   void Awake(){item=GetComponent<HotelItem>();defense=GetComponent<HotelDefenseOpening>();danger=FindFirstObjectByType<HotelZombieDirector>();}
-  public void RequestOpen(bool manual=false){if(defense&&(defense.BoardCount>0||defense.Broken))return;if(!manual&&danger&&danger.IsNight)return;item.open=true;keepOpenUntil=Time.time+closeDelay;}
+  public void RequestOpen(bool manual=false){if(!defense)defense=GetComponent<HotelDefenseOpening>();if(defense&&!defense.CanOpen)return;if(!manual&&danger&&danger.IsNight)return;item.open=true;keepOpenUntil=Time.time+closeDelay;}
   void Update(){
-   if(defense&&defense.Broken){item.open=true;return;}if(defense&&defense.BoardCount>0){item.open=false;return;}if(danger&&danger.IsNight){if(Time.time>keepOpenUntil)item.open=false;return;}
+   if(defense&&defense.Broken){item.open=true;return;}if(defense&&(defense.BoardCount>0||defense.Locked||defense.LockPending)){item.open=false;return;}if(danger&&danger.IsNight){if(Time.time>keepOpenUntil)item.open=false;return;}
    if(!player&&Time.time>=nextPlayerSearch){player=FindFirstObjectByType<HotelPlayer>();nextPlayerSearch=Time.time+1;}
    if(player){
     var p=transform.InverseTransformPoint(player.transform.position);

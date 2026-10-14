@@ -12,6 +12,8 @@ namespace HotelTogether
         bool arrived;
         void Awake(){guest=GetComponent<HotelGuestBot>();human=GetComponent<HotelHuman>();}
         void Start(){director=FindFirstObjectByType<HotelZombieDirector>();}
+        float playerThreatUntil;
+        public void OnPlayerThreat(){playerThreatUntil=Time.time+12;OnThreat();}
         public void OnThreat()
         {
             if(!director)director=FindFirstObjectByType<HotelZombieDirector>();if(!director||!human.Targetable)return;
@@ -23,7 +25,7 @@ namespace HotelTogether
             if(guest.CheckedIn)
             {
                 var room=guest.Hotel.rooms[guest.RoomIndex];var defense=room.door.GetComponent<HotelDefenseOpening>();
-                if((!defense||!defense.Broken&&defense.BoardCount==0)&&!director.NearestThreat(room.standPoint,4)){shelterDoor=room.door;refuge=room.standPoint;shelterDoor.open=true;return;}
+                if((!defense||defense.CanOpen)&&!director.NearestThreat(room.standPoint,4)){shelterDoor=room.door;refuge=room.standPoint;shelterDoor.open=true;return;}
             }
             ChooseAlternateRefuge();
         }
@@ -48,10 +50,11 @@ namespace HotelTogether
         public void EndDanger(){if(!IsTakingCover||!human.Targetable)return;IsTakingCover=false;escort=null;guest.ResumeAfterDanger();}
         void Update()
         {
+            if(guest.PrankPhysics&&guest.PrankPhysics.Suspended)return;
             if(!director||!director.Running)return;
             if(guest.liftPassenger&&guest.liftPassenger.Active)return;
             if(!human.Targetable){guest.StopForDanger();return;}
-            if(IsTakingCover&&!director.IsNight&&!director.NearestThreat(transform.position,9)){EndDanger();return;}
+            if(IsTakingCover&&Time.time>=playerThreatUntil&&!director.IsNight&&!director.NearestThreat(transform.position,9)){EndDanger();return;}
             if(!IsTakingCover){if(director.NearestThreat(transform.position,9))OnThreat();else return;}
             var agent=guest.Agent;if(!agent||!agent.enabled||!agent.isOnNavMesh)return;
             if(Time.time<think)return;think=Time.time+.65f;
@@ -59,7 +62,7 @@ namespace HotelTogether
             {
                 HotelDefenseOpening entrance=null;float best=float.PositiveInfinity;var approach=new NavMeshPath();
                 foreach(var opening in director.openings)
-                {if(!opening.exterior||opening.window||opening.BoardCount>0||director.NearestThreat(opening.outsidePoint,6))continue;if(!agent.CalculatePath(opening.outsidePoint,approach)||approach.status!=NavMeshPathStatus.PathComplete)continue;float distance=Vector3.Distance(transform.position,opening.outsidePoint);if(distance<best){best=distance;entrance=opening;}}
+                {if(!opening.exterior||opening.window||!opening.CanOpen||director.NearestThreat(opening.outsidePoint,6))continue;if(!agent.CalculatePath(opening.outsidePoint,approach)||approach.status!=NavMeshPathStatus.PathComplete)continue;float distance=Vector3.Distance(transform.position,opening.outsidePoint);if(distance<best){best=distance;entrance=opening;}}
                 if(entrance)
                 {
                     if(best<2.3f){var automatic=entrance.door.GetComponent<HotelAutomaticEntrance>();if(automatic)automatic.RequestOpen(true);else entrance.door.open=true;}
@@ -74,7 +77,7 @@ namespace HotelTogether
             }
             Vector3 target=escort?escort.transform.position-escort.transform.forward*1.4f:refuge;
             if(guest.liftPassenger&&Mathf.Abs(target.y-transform.position.y)>3&&guest.liftPassenger.TryBegin(target))return;
-            if(shelterDoor&&!arrived){var opening=shelterDoor.GetComponent<HotelDefenseOpening>();if(!opening||opening.BoardCount==0)shelterDoor.open=true;}
+            if(shelterDoor&&!arrived){var opening=shelterDoor.GetComponent<HotelDefenseOpening>();if(!opening||opening.CanOpen)shelterDoor.open=true;}
             guest.Hotel.OpenNearbyDoors(transform.position);
             var filter=new NavMeshQueryFilter{agentTypeID=agent.agentTypeID,areaMask=agent.areaMask};var path=new NavMeshPath();
             if(!NavMesh.SamplePosition(target,out var hit,1.3f,filter)||!agent.CalculatePath(hit.position,path)||path.status!=NavMeshPathStatus.PathComplete)
@@ -85,8 +88,11 @@ namespace HotelTogether
         }
         public void Pose(float speed,float dt)
         {
-            if(!human.Targetable){guest.visual.Pose(0,dt,true,true,false,.2f,false);guest.visual.transform.localRotation=Quaternion.Euler(0,0,25);return;}
-            guest.visual.transform.localRotation=Quaternion.identity;guest.visual.Pose(speed,dt,false,false,false,.30f,false);
+            if(dt<=0)return;
+            float blend=1-Mathf.Exp(-dt*8);guest.visual.transform.localPosition=Vector3.Lerp(guest.visual.transform.localPosition,Vector3.zero,blend);
+            if(!human.Targetable){guest.visual.Pose(0,dt,true,true,false,.2f,false);guest.visual.transform.localRotation=Quaternion.Slerp(guest.visual.transform.localRotation,Quaternion.Euler(0,0,25),blend);return;}
+            guest.visual.transform.localRotation=Quaternion.Slerp(guest.visual.transform.localRotation,Quaternion.identity,blend);guest.visual.Pose(speed,dt,false,false,false,.30f,false);
+            guest.visual.PoseActivity(guest.Activity,dt);
             if(guest.Agent&&guest.Agent.enabled&&guest.Agent.isOnNavMesh&&!director.Running)guest.Agent.isStopped=true;
         }
     }

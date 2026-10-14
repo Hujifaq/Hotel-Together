@@ -44,11 +44,13 @@ namespace HotelTogether
             player.Drop();dirty.transform.SetParent(transform,true);dirty.gameObject.SetActive(false);Batch=dirty;WashingStarted=false;Remaining=0;
             if(DetergentCharges>0)StartWash();else player.Notify("Room "+dirty.Owner.RoomLabel+" linen loaded. Add laundry detergent from the shelf to start washing.");return true;
         }
+        public bool StaffLoad(HotelGuestDelivery linen,HotelDetergentBottle soap,Vector3 position){if(Batch||!linen||!linen.Owner||linen.type!=GuestDeliveryType.DirtyLaundry||!soap||Vector3.Distance(position,transform.position)>2.5f||!soap.UseDose())return false;linen.ReleaseAttachment();linen.transform.SetParent(transform,true);linen.gameObject.SetActive(false);Batch=linen;DetergentCharges++;StartWash();return true;}
+        public HotelGuestDelivery StaffCollect(Vector3 position){if(!Ready||!Batch.Owner||Vector3.Distance(position,transform.position)>2.5f)return null;var linen=Batch;Batch=null;WashingStarted=false;Remaining=0;linen.gameObject.SetActive(true);linen.Assign(linen.Owner,GuestDeliveryType.CleanLaundry);foreach(var renderer in linen.GetComponentsInChildren<Renderer>())if(renderer.name=="Linen cloth")renderer.sharedMaterial=jobs.cleanLinen;linen.transform.SetPositionAndRotation(output.position,output.rotation);return linen;}
         void Update()
         {
             if(!jobs||!jobs.hotel.Running)return;
             if(Batch&&!Batch.Owner){ResetMachine();return;}
-            if(Batch&&WashingStarted&&Remaining>0){Remaining=Mathf.Max(0,Remaining-Time.deltaTime);if(drum)drum.Rotate(0,0,180*Time.deltaTime);if(Remaining<=0)jobs.hotel.player.Notify("Clean linen ready: Room "+Batch.Owner.RoomLabel+". Collect at the Lobby laundry room.");}
+            if(Batch&&WashingStarted&&Remaining>0){Remaining=Mathf.Max(0,Remaining-Time.deltaTime*(jobs.hotel.Economy&&jobs.hotel.Economy.Initialized?jobs.hotel.Economy.WorkSpeed:1));if(drum)drum.Rotate(0,0,180*Time.deltaTime);if(Remaining<=0)jobs.hotel.player.Notify("Clean linen ready: Room "+Batch.Owner.RoomLabel+". Collect at the Lobby laundry room.");}
             if(status)status.text=!Batch?"WASHER\nE LOAD LINEN":NeedsDetergent?"ROOM "+Batch.Owner.RoomLabel+"\nADD DETERGENT":Ready?"ROOM "+Batch.Owner.RoomLabel+"\nE COLLECT":"ROOM "+Batch.Owner.RoomLabel+" / "+Mathf.CeilToInt(Remaining)+"s";
         }
         public void Cancel(HotelGuestBot guest){if(Batch&&Batch.Owner==guest)ResetMachine();}

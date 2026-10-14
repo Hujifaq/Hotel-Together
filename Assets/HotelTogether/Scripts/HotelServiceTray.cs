@@ -17,7 +17,7 @@ namespace HotelTogether
             foreach(var c in supply.GetComponentsInChildren<Collider>())c.enabled=false;
             var item=supply.GetComponent<HotelItem>();item.enabled=false;
             supply.transform.SetParent(slots[Count],false);supply.transform.localPosition=Vector3.zero;supply.transform.localRotation=Quaternion.identity;loaded.Add(supply);
-            UpdateName();player.Notify("Loaded "+supply.Label+". Tray "+Count+"/3; E at the matching guest.");return true;
+            UpdateName();player.PlayGesture(HotelPlayerGesture.Interact,supply.transform.position);player.Notify("Loaded "+supply.Label+". Tray "+Count+"/3; LMB at the matching guest.");return true;
         }
         public bool Serve(GuestNeed need, MealDish dish = MealDish.ChickenRice)
         {
