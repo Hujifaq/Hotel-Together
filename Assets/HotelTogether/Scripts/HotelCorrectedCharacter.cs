@@ -102,6 +102,7 @@ namespace HotelTogether
             foreach (var old in originals) old.enabled = false;
             if (!zombie)
                 visual.SetLuggageGrip(visual.transform.TransformPoint(GripPoint));
+            HotelToonShading.Apply(visual.gameObject);
         }
 
         static readonly Vector3 Wrist = new Vector3(.49f, .63f, .035f);
@@ -156,6 +157,7 @@ namespace HotelTogether
                 bunObject.GetComponent<MeshRenderer>().sharedMaterial = customerLookMaterials[index][3];
             }
             else if (bun) bun.gameObject.SetActive(index == 5);
+            HotelToonShading.Apply(visual.gameObject);
         }
 
         static void AddHairStyles(Mesh mesh, Vector3[] vertices, byte[] roles)
