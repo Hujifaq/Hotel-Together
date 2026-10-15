@@ -75,6 +75,10 @@ namespace HotelTogether
             public bool fsrOverride;
         }
 
+        // Play mode runs without a domain reload: drop the previous session's instance and listeners.
+        [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
+        static void ResetStatics() { Instance = null; TierChanged = null; }
+
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void Boot()
         {
@@ -166,7 +170,7 @@ namespace HotelTogether
                 pipeline.fsrOverrideSharpness = true; pipeline.fsrSharpness = .86f;
                 foreach (var feature in occlusionFeatures) if (feature) feature.SetActive(s.ambientOcclusion && featureStates[feature]);
             }
-            applied = true;
+            applied = applied || pipeline;
             SetScale(s.renderScale, true);
             QualitySettings.lodBias = s.lodBias;
             QualitySettings.anisotropicFiltering = CurrentTier >= Tier.High ? AnisotropicFiltering.ForceEnable : AnisotropicFiltering.Enable;
@@ -175,6 +179,7 @@ namespace HotelTogether
             lightScan = 0; lightTick = 0;
             foreach (var quality in FindObjectsByType<HotelGraphicsQuality>(FindObjectsSortMode.None)) quality.ApplyTier(s);
             TierChanged?.Invoke(this);
+            HotelGraphicsLog.Write("performance: tier " + CurrentTier + ", scale " + CurrentScale.ToString("0.00"));
         }
 
         void ConfigureCameras()
@@ -290,7 +295,7 @@ namespace HotelTogether
             foreach (var entry in prunedShadows) if (entry.Key) entry.Key.shadowCastingMode = entry.Value;
             foreach (var item in managedLights) if (item.light) item.light.shadows = item.shadows;
             foreach (var entry in featureStates) if (entry.Key) entry.Key.SetActive(entry.Value);
-            if (pipeline && applied)
+            if (pipeline && applied && snapshot.cascades > 0)
             {
                 // Restore the pipeline asset so Play mode never leaves it modified.
                 pipeline.renderScale = snapshot.renderScale; pipeline.shadowDistance = snapshot.shadowDistance;

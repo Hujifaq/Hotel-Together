@@ -132,6 +132,7 @@ namespace HotelTogether
             return GUI.HorizontalSlider(new Rect(row.x, row.y + 37, row.width, 24), value, min, max);
         }
 
+        static bool loggedSettings;
         void DrawSettingsMenu(Rect safe)
         {
             Rule(safe, new Color(.05f, .15f, .20f, MenuDim(.63f)));
@@ -153,11 +154,18 @@ namespace HotelTogether
                 "MUSIC VOLUME", musicVolume, 0, 1, Mathf.RoundToInt(musicVolume * 100) + "%");
             HotelAudio.SetMusicVolume(musicVolume, false);
             bool changed = !Mathf.Approximately(oldSensitivity, sensitivity) || !Mathf.Approximately(oldVolume, masterVolume) || !Mathf.Approximately(oldMusic, musicVolume);
-            float half = (width - 78) / 2;
-            if (MenuButton(new Rect(r.x + 32, r.y + 384, half, 48), "CAMERA BOB: " + (walkingCameraBob ? "ON" : "OFF"), false))
+            // Camera options plus the cartoon shading switch (TOON) share one row.
+            float row = (width - 92) / 3;
+            int rowFont = uiSecondary.fontSize; uiSecondary.fontSize = 21;
+            if (MenuButton(new Rect(r.x + 32, r.y + 384, row + 14, 48), "CAMERA BOB: " + (walkingCameraBob ? "ON" : "OFF"), false))
             { walkingCameraBob = !walkingCameraBob; changed = true; }
-            if (MenuButton(new Rect(r.x + 46 + half, r.y + 384, half, 48), "INVERT Y: " + (invertLook ? "ON" : "OFF"), false))
+            if (MenuButton(new Rect(r.x + 60 + row, r.y + 384, row - 14, 48), "INVERT Y: " + (invertLook ? "ON" : "OFF"), false))
             { invertLook = !invertLook; changed = true; }
+            var toon = HotelToonShading.Instance;
+            if (Event.current.type == EventType.Repaint && !loggedSettings) { loggedSettings = true; HotelGraphicsLog.Write("settings: toon=" + (toon != null) + " performance=" + (HotelPerformanceDirector.Instance != null)); }
+            if (toon && MenuButton(new Rect(r.x + 60 + row * 2, r.y + 384, row, 48), "TOON: " + (HotelToonShading.Enabled ? "ON" : "OFF"), false))
+                toon.SetEnabled(!HotelToonShading.Enabled);
+            uiSecondary.fontSize = rowFont;
             // Graphics: quality tier, adaptive resolution and a frame-rate readout.
             var performance = HotelPerformanceDirector.Instance;
             if (performance)
