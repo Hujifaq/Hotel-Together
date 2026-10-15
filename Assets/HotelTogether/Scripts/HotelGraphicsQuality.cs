@@ -12,7 +12,11 @@ namespace HotelTogether
   [Range(.25f,1)] public float reflectionScale=.65f;
   [Range(256,2048)] public int maximumReflectionSize=1024;
   public float reflectionPlaneHeight=.002f;
+  [Tooltip("Floor reflections only need nearby furniture and people; distant city geometry is skipped.")] public float reflectionFarClip=45;
+  [Min(1)] public int reflectionInterval=1;
+  public bool reflectionsEnabled=true;
   Camera reflectionCamera;
+  int lastReflectionFrame=-100;
   RenderTexture reflection;
   GameObject volumeObject;
   bool rendering;
@@ -39,8 +43,16 @@ namespace HotelTogether
     var volume=volumeObject.AddComponent<Volume>();volume.isGlobal=true;volume.priority=20;volume.sharedProfile=qualityProfile;
    }
   }
+  public void ApplyTier(HotelPerformanceDirector.TierSettings tier)
+  {
+   reflectionsEnabled=tier.floorReflections;reflectionScale=tier.reflectionScale;maximumReflectionSize=tier.reflectionMaxSize;reflectionInterval=Mathf.Max(1,tier.reflectionInterval);
+   if(!reflectionsEnabled){Shader.SetGlobalFloat(ReadyId,0);Release(reflection);reflection=null;}
+  }
   void Reflect(ScriptableRenderContext context,Camera source)
   {
+   if(!reflectionsEnabled || source.cameraType!=CameraType.Game && source.cameraType!=CameraType.SceneView)return;
+   // Reuse the previous reflection on cheaper tiers; the floor reflection is blurred anyway.
+   if(reflection && Application.isPlaying && Time.frameCount-lastReflectionFrame<reflectionInterval)return;
    if(rendering || !polishedTiles || source==reflectionCamera || source.cameraType==CameraType.Reflection || source.cameraType==CameraType.Preview || source.transform.position.y<.1f || source.transform.position.y>4.5f)return;
    if(!reflectionCamera)
    {
@@ -52,8 +64,9 @@ namespace HotelTogether
    {
     Release(reflection);reflection=new RenderTexture(width,height,24,RenderTextureFormat.DefaultHDR){name="Lobby floor reflection",hideFlags=HideFlags.HideAndDontSave,useMipMap=true,autoGenerateMips=false,filterMode=FilterMode.Trilinear};reflection.Create();
    }
-   reflectionCamera.CopyFrom(source);reflectionCamera.enabled=false;reflectionCamera.cameraType=CameraType.Reflection;reflectionCamera.targetTexture=reflection;reflectionCamera.allowMSAA=false;reflectionCamera.useOcclusionCulling=false;
-   var data=reflectionCamera.GetUniversalAdditionalCameraData();data.renderType=CameraRenderType.Base;data.renderPostProcessing=false;data.renderShadows=true;data.requiresColorOption=CameraOverrideOption.Off;data.requiresDepthOption=CameraOverrideOption.Off;data.antialiasing=AntialiasingMode.None;
+   reflectionCamera.CopyFrom(source);reflectionCamera.ResetProjectionMatrix();reflectionCamera.farClipPlane=Mathf.Min(source.farClipPlane,reflectionFarClip);reflectionCamera.enabled=false;reflectionCamera.cameraType=CameraType.Reflection;reflectionCamera.targetTexture=reflection;reflectionCamera.allowMSAA=false;reflectionCamera.allowHDR=true;reflectionCamera.useOcclusionCulling=false;
+   // Shadows are re-rendered per camera; the blurred, low-resolution reflection does not need them.
+   var data=reflectionCamera.GetUniversalAdditionalCameraData();data.renderType=CameraRenderType.Base;data.renderPostProcessing=false;data.renderShadows=false;data.requiresColorOption=CameraOverrideOption.Off;data.requiresDepthOption=CameraOverrideOption.Off;data.antialiasing=AntialiasingMode.None;
    var matrix=Matrix4x4.identity;matrix.m11=-1;matrix.m13=2*reflectionPlaneHeight;
    var reflectedPosition=matrix.MultiplyPoint(source.transform.position);
    reflectionCamera.transform.position=reflectedPosition;
@@ -61,7 +74,7 @@ namespace HotelTogether
    reflectionCamera.worldToCameraMatrix=source.worldToCameraMatrix*matrix;
    var planePoint=new Vector3(0,reflectionPlaneHeight+.015f,0);var cameraPoint=reflectionCamera.worldToCameraMatrix.MultiplyPoint(planePoint);var cameraNormal=reflectionCamera.worldToCameraMatrix.MultiplyVector(Vector3.up).normalized;
    var clipPlane=new Vector4(cameraNormal.x,cameraNormal.y,cameraNormal.z,-Vector3.Dot(cameraPoint,cameraNormal));
-   reflectionCamera.projectionMatrix=source.CalculateObliqueMatrix(clipPlane);
+   reflectionCamera.projectionMatrix=reflectionCamera.CalculateObliqueMatrix(clipPlane);
    reflectionCamera.cullingMask=source.cullingMask & ~((1<<8)|(1<<9));
    bool oldCulling=GL.invertCulling;rendering=true;
    try
@@ -70,7 +83,7 @@ namespace HotelTogether
     #pragma warning disable 0618
     UniversalRenderPipeline.RenderSingleCamera(context,reflectionCamera);
     #pragma warning restore 0618
-    reflection.GenerateMips();
+    reflection.GenerateMips();lastReflectionFrame=Time.frameCount;
     Shader.SetGlobalTexture(ReflectionId,reflection);Shader.SetGlobalMatrix(MatrixId,GL.GetGPUProjectionMatrix(reflectionCamera.projectionMatrix,true)*reflectionCamera.worldToCameraMatrix);Shader.SetGlobalFloat(ReadyId,1);
    }
    finally{GL.invertCulling=oldCulling;rendering=false;}

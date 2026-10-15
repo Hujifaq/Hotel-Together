@@ -19,7 +19,7 @@ namespace HotelTogether
             if(!Targetable||!Director||!Director.Running)return;
             var combat=Player?Player.GetComponent<HotelCombat>():null;if(combat)amount=combat.BlockDamage(amount,source);
             Health=Mathf.Max(0,Health-amount);
-            if(Player&&amount>0&&!Downed)Player.PlayGesture(HotelPlayerGesture.Hurt,source);
+            if(Player&&amount>0&&!Downed){Player.PlayGesture(HotelPlayerGesture.Hurt,source);HotelAudio.PlayAt("player_hurt",transform.position,.9f,Random.Range(.92f,1.08f),.25f,24);}
             if(Guest)Guest.GetComponent<HotelGuestSurvival>()?.OnThreat();
             if(Downed){bleedRemaining=45;if(Player)Player.Incapacitate();if(Guest)Guest.GetComponent<HotelGuestSurvival>()?.Incapacitate();Director.Alert((Player?"You":Guest.guestName)+" is down! Rescue with medicine.");}
         }

@@ -8,7 +8,7 @@ namespace HotelTogether
     {
         const string SettingsPrefix = "HotelTogether.Settings.";
         bool menuPaused, settingsOpen, hasPlayed, invertLook, settingsDirty, applicationFocused = true;
-        float resumeTimeScale = 1, masterVolume = 1, previousVolume;
+        float resumeTimeScale = 1, masterVolume = 1, previousVolume, musicVolume = 1;
         bool previousAudioPause;
         double noticePauseStarted;
 
@@ -24,6 +24,7 @@ namespace HotelTogether
             masterVolume = Mathf.Clamp01(PlayerPrefs.GetFloat(SettingsPrefix + "Volume", previousVolume));
             walkingCameraBob = PlayerPrefs.GetInt(SettingsPrefix + "CameraBob", walkingCameraBob ? 1 : 0) != 0;
             invertLook = PlayerPrefs.GetInt(SettingsPrefix + "InvertLook", 0) != 0;
+            musicVolume = Mathf.Clamp01(PlayerPrefs.GetFloat(SettingsPrefix + "Music", 1)); HotelAudio.SetMusicVolume(musicVolume, false);
             AudioListener.volume = masterVolume;
         }
 
@@ -95,6 +96,7 @@ namespace HotelTogether
             if(Economy&&Economy.ModalOpen){var modalKeys=Keyboard.current;if(modalKeys!=null){if(Economy.SummaryOpen&&modalKeys.enterKey.wasPressedThisFrame)Economy.ContinueDay();else if(Economy.ShopOpen&&(modalKeys.escapeKey.wasPressedThisFrame||modalKeys.uKey.wasPressedThisFrame))Economy.CloseShop();}return true;}
             // Unity can release the cursor without an Esc event (focus change / Editor escape).
             if (!menuPaused && Cursor.lockState != CursorLockMode.Locked) PauseGameplay();
+            if (menuPaused && UpdateTitleInput()) return true;
             var keyboard = Keyboard.current;
             if (keyboard != null && keyboard.escapeKey.wasPressedThisFrame)
             {
@@ -116,6 +118,7 @@ namespace HotelTogether
         {
             PlayerPrefs.SetFloat(SettingsPrefix + "Sensitivity", sensitivity);
             PlayerPrefs.SetFloat(SettingsPrefix + "Volume", masterVolume);
+            PlayerPrefs.SetFloat(SettingsPrefix + "Music", musicVolume);
             PlayerPrefs.SetInt(SettingsPrefix + "CameraBob", walkingCameraBob ? 1 : 0);
             PlayerPrefs.SetInt(SettingsPrefix + "InvertLook", invertLook ? 1 : 0);
             PlayerPrefs.Save();
@@ -131,9 +134,9 @@ namespace HotelTogether
 
         void DrawSettingsMenu(Rect safe)
         {
-            Rule(safe, new Color(.05f, .15f, .20f, .63f));
+            Rule(safe, new Color(.05f, .15f, .20f, MenuDim(.63f)));
             float width = Mathf.Min(660, safe.width - 36);
-            var r = new Rect(safe.center.x - width / 2, safe.center.y - 353, width, 706);
+            var r = new Rect(safe.center.x - width / 2, safe.center.y - 431, width, 863);
             Bubble(r, uiCream, uiCreamBottom, 28, 7);
             Bubble(new Rect(r.x + 20, r.y + 18, width - 40, 68), uiBlue, uiBlueBottom, 20, 4);
             uiHeading.fontSize = 32;
@@ -145,12 +148,28 @@ namespace HotelTogether
                 "MOUSE SENSITIVITY", sensitivity, .03f, .30f, (sensitivity / .12f).ToString("0.00") + "x");
             masterVolume = SettingsSlider(new Rect(r.x + 32, r.y + 222, width - 64, 62),
                 "MASTER VOLUME", masterVolume, 0, 1, Mathf.RoundToInt(masterVolume * 100) + "%");
-            bool changed = !Mathf.Approximately(oldSensitivity, sensitivity) || !Mathf.Approximately(oldVolume, masterVolume);
+            var oldMusic = musicVolume;
+            musicVolume = SettingsSlider(new Rect(r.x + 32, r.y + 301, width - 64, 62),
+                "MUSIC VOLUME", musicVolume, 0, 1, Mathf.RoundToInt(musicVolume * 100) + "%");
+            HotelAudio.SetMusicVolume(musicVolume, false);
+            bool changed = !Mathf.Approximately(oldSensitivity, sensitivity) || !Mathf.Approximately(oldVolume, masterVolume) || !Mathf.Approximately(oldMusic, musicVolume);
             float half = (width - 78) / 2;
-            if (MenuButton(new Rect(r.x + 32, r.y + 305, half, 48), "CAMERA BOB: " + (walkingCameraBob ? "ON" : "OFF"), false))
+            if (MenuButton(new Rect(r.x + 32, r.y + 384, half, 48), "CAMERA BOB: " + (walkingCameraBob ? "ON" : "OFF"), false))
             { walkingCameraBob = !walkingCameraBob; changed = true; }
-            if (MenuButton(new Rect(r.x + 46 + half, r.y + 305, half, 48), "INVERT Y: " + (invertLook ? "ON" : "OFF"), false))
+            if (MenuButton(new Rect(r.x + 46 + half, r.y + 384, half, 48), "INVERT Y: " + (invertLook ? "ON" : "OFF"), false))
             { invertLook = !invertLook; changed = true; }
+            // Graphics: quality tier, adaptive resolution and a frame-rate readout.
+            var performance = HotelPerformanceDirector.Instance;
+            if (performance)
+            {
+                float third = (width - 92) / 3;
+                int buttonFont = uiButton.fontSize, secondaryFont = uiSecondary.fontSize;
+                uiButton.fontSize = 21; uiSecondary.fontSize = 21;
+                if (MenuButton(new Rect(r.x + 32, r.y + 447, third + 30, 48), "GRAPHICS: " + performance.Settings.label, true)) performance.CycleTier();
+                if (MenuButton(new Rect(r.x + 76 + third, r.y + 447, third - 2, 48), "AUTO RES: " + (performance.AutoResolution ? "ON" : "OFF"), false)) performance.SetAutoResolution(!performance.AutoResolution);
+                if (MenuButton(new Rect(r.x + 88 + third * 2, r.y + 447, third - 28, 48), "FPS: " + (performance.ShowFrameRate ? "ON" : "OFF"), false)) performance.SetShowFrameRate(!performance.ShowFrameRate);
+                uiButton.fontSize = buttonFont; uiSecondary.fontSize = secondaryFont;
+            }
             if (changed)
             {
                 AudioListener.volume = masterVolume;
@@ -158,14 +177,14 @@ namespace HotelTogether
             }
             // Sliders update live; write to disk once the drag/click ends.
             if (settingsDirty && Event.current.rawType == EventType.MouseUp) SaveSettings();
-            Rule(new Rect(r.x + 32, r.y + 378, width - 64, 1), uiCreamBottom);
-            GUI.Label(new Rect(r.x + 32, r.y + 397, width - 64, 26), "YOUR SHIFT", hudTitle);
-            GUI.Label(new Rect(r.x + 32, r.y + 435, width - 64, 26), "WASD Move  /  SHIFT Run  /  SPACE Jump", uiSmall);
-            GUI.Label(new Rect(r.x + 32, r.y + 467, width - 64, 26), "LMB Interact / hold  /  Release LMB drop  /  RMB Throw", uiSmall);
-            GUI.Label(new Rect(r.x + 32, r.y + 499, width - 64, 26), "LMB Fire / Hit  /  R Reload gun  /  Q Put down  /  H Heal", uiSmall);
-            GUI.Label(new Rect(r.x + 32, r.y + 531, width - 64, 26), "B / N / T Barricades  /  R Reset without gun  /  ESC Menu", uiSmall);
-            if (MenuButton(new Rect(r.x + 32, r.y + 590, width - 64, 58), "BACK TO MENU", true)) settingsOpen = false;
-            GUI.Label(new Rect(r.x + 24, r.y + 668, width - 48, 24), "ESC  Back  |  O  Settings", uiSmall);
+            Rule(new Rect(r.x + 32, r.y + 527, width - 64, 1), uiCreamBottom);
+            GUI.Label(new Rect(r.x + 32, r.y + 546, width - 64, 26), "YOUR SHIFT", hudTitle);
+            GUI.Label(new Rect(r.x + 32, r.y + 584, width - 64, 26), "WASD Move  /  SHIFT Run  /  SPACE Jump", uiSmall);
+            GUI.Label(new Rect(r.x + 32, r.y + 616, width - 64, 26), "LMB Interact / hold  /  Release LMB drop  /  RMB Throw", uiSmall);
+            GUI.Label(new Rect(r.x + 32, r.y + 648, width - 64, 26), "LMB Fire / Hit  /  R Reload gun  /  Q Put down  /  H Heal", uiSmall);
+            GUI.Label(new Rect(r.x + 32, r.y + 680, width - 64, 26), "B / N / T Barricades  /  R Reset without gun  /  ESC Menu", uiSmall);
+            if (MenuButton(new Rect(r.x + 32, r.y + 741, width - 64, 58), "BACK TO MENU", true)) settingsOpen = false;
+            GUI.Label(new Rect(r.x + 24, r.y + 821, width - 48, 24), "ESC  Back  |  O  Settings", uiSmall);
         }
     }
 }

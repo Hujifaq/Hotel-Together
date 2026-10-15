@@ -28,6 +28,8 @@ namespace HotelTogether
         public IReadOnlyList<HotelGuestBot> Guests=>guests;
         public bool Running=>enabled&&player&&player.GameplayInputEnabled;
         public bool IsNight=>elapsed>=daySeconds;
+        /// <summary>Smoothed 0 (day) to 1 (night) used by lighting and the visual director.</summary>
+        public float NightBlend { get; private set; }
         public int DayNumber { get; private set; }=1;
         public float PeriodRemaining=>Mathf.Max(0,(IsNight?daySeconds+nightSeconds:daySeconds)-elapsed);
         public int Tips { get; private set; }
@@ -149,6 +151,7 @@ namespace HotelTogether
             float transition=DayNumber>1&&elapsed<18
                 ? 1-Mathf.SmoothStep(0,1,Mathf.Clamp01(elapsed/18))
                 : Mathf.SmoothStep(0,1,Mathf.Clamp01((elapsed-(daySeconds-25))/35));
+            NightBlend=transition;
             if(sun){sun.intensity=Mathf.Lerp(sunIntensity,.18f,transition);sun.color=Color.Lerp(sunColor,new Color(.40f,.52f,.82f),transition);sun.transform.rotation=Quaternion.Slerp(sunRotation,Quaternion.Euler(35,-40,0),transition);}
             RenderSettings.ambientIntensity=Mathf.Lerp(ambientIntensity,.35f,transition);RenderSettings.ambientLight=Color.Lerp(ambientColor,new Color(.12f,.17f,.28f),transition);
             if(!cityBackground&&Time.time>=backgroundSearch)
