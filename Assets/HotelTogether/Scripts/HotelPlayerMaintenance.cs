@@ -44,7 +44,7 @@ namespace HotelTogether
             HotelMaintenanceIncident priority=system.Working;
             if(!priority)foreach(var incident in system.incidents)if(incident&&incident.Unresolved){priority=incident;break;}
             if(!priority)return;
-            var rect=new Rect(safe.x+24,safe.y+155,Mathf.Min(360,safe.width-48),126);
+            var rect=new Rect(safe.x+24,safe.y+462,Mathf.Min(360,safe.width-48),126);
             Bubble(rect,uiCream,uiCreamBottom,17,4);
             GUI.Label(new Rect(rect.x+15,rect.y+10,rect.width-30,24),priority.Title+" / "+system.ActiveCount+" active",hudTitle);
             GUI.Label(new Rect(rect.x+15,rect.y+36,rect.width-30,25),priority.location,hudCaption);

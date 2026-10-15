@@ -20,21 +20,24 @@ namespace HotelTogether
         {director=owner;Health=MaxHealth=health;Agent=GetComponent<NavMeshAgent>();Agent.speed=1.1f+Mathf.Min(.45f,(owner.hotel.DayNumber-1)*.045f);lastPosition=transform.position;if(visual){visualHome=visual.transform.localPosition;visualRotation=visual.transform.localRotation;}var bar=GetComponent<HotelTargetHealthBar>();if(!bar)bar=gameObject.AddComponent<HotelTargetHealthBar>();bar.Initialize(null,this,owner.hotel.player);}
         public void Damage(float amount,Vector3 direction)
         {
-            if(!Alive||!director||!float.IsFinite(amount)||amount<=0)return;Health=Mathf.Max(0,Health-amount);stunned=Time.time+.30f;
+            if(!Alive||!director||!float.IsFinite(amount)||amount<=0)return;Health=Mathf.Max(0,Health-amount);stunned=Time.time+.30f;HotelAudio.PlayAt(Health>0?"zombie_hit":"zombie_die",transform.position,.95f,Random.Range(.9f,1.1f),.05f,40);
             if(Agent.isOnNavMesh){Agent.isStopped=true;var filter=new NavMeshQueryFilter{agentTypeID=Agent.agentTypeID,areaMask=Agent.areaMask};if(NavMesh.SamplePosition(transform.position+direction.normalized*.18f,out var hit,.4f,filter))Agent.Warp(hit.position);}
             if(!Alive){deathStarted=Time.time;Agent.enabled=false;foreach(var collider in GetComponents<Collider>())collider.enabled=false;State="Defeated";if(visual)gameObject.AddComponent<HotelZombieDeathPhysics>().Initialize(visual,direction);director.Kill(this);Destroy(gameObject,20);}
         }
+        float groanTime=-1;
         void Update()
         {
+            if(groanTime<0)groanTime=Time.time+Random.Range(1f,8f);
             if(!director||!Alive||!Agent.enabled||!Agent.isOnNavMesh)return;
             if(!director.Running||!director.IsNight||Time.time<stunned){Agent.isStopped=true;return;}
+            if(Time.time>=groanTime){groanTime=Time.time+Random.Range(5f,12f);HotelAudio.PlayAt(HotelAudio.Pick("zombie_groan",3),transform.position,.7f,Random.Range(.85f,1.12f),.4f,34);}
             Agent.isStopped=false;if(Time.time>=think){think=Time.time+.45f;Think();}
             if(TryAttackHuman())return;
             if(assault)
             {
                 if(!assault.Blocks){assault=null;think=0;return;}
                 if(Vector3.Distance(transform.position,assaultFromInside?assault.insidePoint:assault.outsidePoint)<.45f)
-                {Agent.isStopped=true;State="Breaking in";Face(assault.transform.position);if(Time.time>=attackTime){attackTime=Time.time+1.1f;assault.TakeAttack(16+Mathf.Min(12,director.hotel.DayNumber-1));}}
+                {Agent.isStopped=true;State="Breaking in";Face(assault.transform.position);if(Time.time>=attackTime){attackTime=Time.time+1.1f;HotelAudio.PlayAt("zombie_attack",transform.position,.85f,Random.Range(.9f,1.1f),.1f,30);assault.TakeAttack(16+Mathf.Min(12,director.hotel.DayNumber-1));}}
                 return;
             }
         }
@@ -48,7 +51,7 @@ namespace HotelTogether
                     Face(Target.transform.position);
                     var origin=transform.position+Vector3.up*1.1f;var end=Target.transform.position+Vector3.up*1.1f;
                     bool clear=!Physics.Linecast(origin,end,out var hit,~((1<<8)|(1<<9)),QueryTriggerInteraction.Ignore)||hit.collider.GetComponentInParent<HotelHuman>()==Target;
-                    if(clear){Agent.isStopped=true;State="Attacking";if(Time.time>=attackTime){attackTime=Time.time+1.2f;Target.Damage(12+Mathf.Min(12,director.hotel.DayNumber-1),transform.position);}return true;}
+                    if(clear){Agent.isStopped=true;State="Attacking";if(Time.time>=attackTime){attackTime=Time.time+1.2f;HotelAudio.PlayAt("zombie_attack",transform.position,.85f,Random.Range(.9f,1.1f),.1f,30);Target.Damage(12+Mathf.Min(12,director.hotel.DayNumber-1),transform.position);}return true;}
                 }
             }
             return false;

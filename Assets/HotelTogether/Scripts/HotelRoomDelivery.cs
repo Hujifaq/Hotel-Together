@@ -12,7 +12,7 @@ namespace HotelTogether
         System.Collections.IEnumerator KnockSound(HotelPlayer player)
         {
             if(!knockSound){knockSound=gameObject.AddComponent<AudioSource>();knockSound.playOnAwake=false;knockSound.spatialBlend=1;knockSound.maxDistance=12;}
-            for(int i=0;i<3;i++){if(!player)yield break;player.PlayGesture(HotelPlayerGesture.Interact,transform.position);knockSound.PlayOneShot(player.ImpactClip,.35f);yield return new WaitForSeconds(.15f);}
+            for(int i=0;i<3;i++){if(!player)yield break;player.PlayGesture(HotelPlayerGesture.Interact,transform.position);if(!HotelAudio.Has("knock"))knockSound.PlayOneShot(player.ImpactClip,.35f);else if(i==0)HotelAudio.PlayAt("knock",transform.position,.9f,1,0,16);yield return new WaitForSeconds(.15f);}
         }
         public HotelGuestBot Occupant
         {

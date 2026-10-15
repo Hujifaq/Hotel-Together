@@ -20,11 +20,11 @@ namespace HotelTogether {
    if(string.IsNullOrWhiteSpace(text)||text=="Q  Put down | RMB  Throw"||text=="E  Stand up"||text=="E  Release cart")return;
    if(text==message&&Time.unscaledTime<messageUntil||text==lastNotice&&Time.unscaledTime-lastNoticeAt<3||notices.Contains(text))return;
    lastNotice=text;lastNoticeAt=Time.unscaledTime;
-   if(urgent){notices.Clear();ShowNotice(text);return;}
+   if(urgent){notices.Clear();ShowNotice(text);HotelAudio.Play("toast_urgent",.7f,1,.4f);return;}
    if(Time.unscaledTime>=messageUntil){ShowNotice(text);return;}
    if(notices.Count>=3)notices.Dequeue();notices.Enqueue(text);
   }
-  void ShowNotice(string text){message=text;messageUntil=Time.unscaledTime+Mathf.Clamp(2.6f+text.Length*.025f,3.3f,7);if(menuPaused)noticePauseStarted=Time.unscaledTimeAsDouble;}
+  void ShowNotice(string text){HotelAudio.Play("toast",.5f,1,.35f);message=text;messageUntil=Time.unscaledTime+Mathf.Clamp(2.6f+text.Length*.025f,3.3f,7);if(menuPaused)noticePauseStarted=Time.unscaledTimeAsDouble;}
   void AdvanceNotices(){if(Time.unscaledTime>=messageUntil&&notices.Count>0)ShowNotice(notices.Dequeue());}
   public void CaptureMouse(){ResumeGameplay();}
   public void Face(float heading){yaw=heading;pitch=0;transform.rotation=Quaternion.Euler(0,yaw,0);view.transform.localRotation=Quaternion.identity;}
@@ -135,7 +135,7 @@ public bool RequestPickup(HotelItem item){
   void Sit(HotelItem o){var guests=FindFirstObjectByType<HotelGuestSimulation>();if(guests&&guests.IsSeatOccupied(o)){Notify("This seat is reserved for a guest.");return;}PlayGesture(HotelPlayerGesture.Sit,o.transform.position);seated=o;cc.enabled=false;transform.position=new Vector3(o.transform.position.x,o.home.y-o.dimensions.y/2+.025f,o.transform.position.z);eyeBase=new Vector3(standingEyeBase.x,o.seatEyeHeight,standingEyeBase.z);smoothedBob=Vector3.zero;bobWeight=0;Notify("E  Stand up");}
   void Stand(){var s=seated;if(!s)return;PlayGesture(HotelPlayerGesture.Stand,s.transform.position);Vector3 target=s.transform.position+s.transform.forward*(s.dimensions.z/2+.75f);target.y=transform.position.y;if(Physics.CheckCapsule(target+Vector3.up*.35f,target+Vector3.up*1.35f,.28f,~((1<<8)|(1<<9)),QueryTriggerInteraction.Ignore)){target=s.transform.position-s.transform.forward*(s.dimensions.z/2+.75f);target.y=transform.position.y;}transform.position=target;eyeBase=standingEyeBase;smoothedBob=Vector3.zero;bobWeight=0;cc.enabled=true;vertical=0;seated=null;}
   public void ResetWorld(){CancelMouseGrip();jumpPresentation=0;Maintenance?.ResetMaintenance();ReleaseGuest(false);notices.Clear();messageUntil=0;message=null;lastNotice=null;jobsOpen=false;jobsPage=0;lastGuestCount=-1;sunsetNotice=lowHealthNotice=false;transportLocked=false;foreach(var elevator in FindObjectsByType<HotelElevator>(FindObjectsSortMode.None))elevator.ResetElevator();foreach(var lift in FindObjectsByType<HotelServiceLift>(FindObjectsSortMode.None))lift.ResetLift();Drop();EndCart();seated=null;cc.enabled=false;transform.SetPositionAndRotation(spawn,startRotation);eyeBase=standingEyeBase;view.transform.localPosition=eyeBase;smoothedBob=Vector3.zero;bobWeight=0;bobPhase=0;vertical=0;pitch=0;yaw=startRotation.eulerAngles.y;view.transform.localRotation=Quaternion.identity;focused=null;bellCount=0;cc.enabled=true;foreach(var o in FindObjectsByType<HotelItem>(FindObjectsSortMode.None))o.ResetItem();Physics.SyncTransforms();FindFirstObjectByType<HotelGuestSimulation>()?.ResetSimulation();FindFirstObjectByType<HotelZombieDirector>()?.ResetDefense();ResetActionAnimation();Notify("Fresh start!");}
-  void Bell(){bellCount++;var clip=AudioClip.Create("Reception bell",24000,1,24000,false);var samples=new float[24000];for(int i=0;i<samples.Length;i++){float t=i/24000f;samples[i]=Mathf.Sin(2*Mathf.PI*1568*t)*.15f*Mathf.Exp(-t*7);}clip.SetData(samples,0);AudioSource.PlayClipAtPoint(clip,focused.transform.position,.7f);Destroy(clip,2);Notify("Ding! Someone will be right with you.");}
+  void Bell(){bellCount++;if(HotelAudio.Has("bell")){HotelAudio.PlayAt("bell",focused.transform.position,.95f,1,0,40);Notify("Ding! Someone will be right with you.");return;}var clip=AudioClip.Create("Reception bell",24000,1,24000,false);var samples=new float[24000];for(int i=0;i<samples.Length;i++){float t=i/24000f;samples[i]=Mathf.Sin(2*Mathf.PI*1568*t)*.15f*Mathf.Exp(-t*7);}clip.SetData(samples,0);AudioSource.PlayClipAtPoint(clip,focused.transform.position,.7f);Destroy(clip,2);Notify("Ding! Someone will be right with you.");}
   [Header("First-person feel")]
   public bool walkingCameraBob=true;
   [Range(0,.04f)]public float walkingBobAmount=.014f;
@@ -503,8 +503,8 @@ public bool RequestPickup(HotelItem item){
   }
   void DrawMenu(Rect safe){
    if(settingsOpen){DrawSettingsMenu(safe);return;}
-   if(employee&&employee.Ready){DrawEmployeeMenu(safe);return;}
-   Rule(safe,new Color(.05f,.15f,.20f,.47f));
+   if(employee&&employee.Ready){DrawEmployeeSelect(safe);return;}
+   Rule(safe,new Color(.05f,.15f,.20f,MenuDim(.47f)));
    float width=Mathf.Min(466,safe.width-40);var r=new Rect(safe.center.x-width/2,safe.center.y-285,width,570);
    Bubble(r,uiCream,uiCreamBottom,32,9);
    // A blue toy-like header with an orange backing ribbon.
@@ -519,11 +519,12 @@ public bool RequestPickup(HotelItem item){
    float bx=r.x+37,bw=r.width-74;
    if(MenuButton(new Rect(bx,r.y+246,bw,66),hasPlayed?"RESUME":"LET'S PLAY",true))CaptureMouse();
    if(MenuButton(new Rect(bx,r.y+329,bw,58),"START OVER",false)){ResetWorld();CaptureMouse();}
-   if(MenuButton(new Rect(bx,r.y+417,bw,48),"SETTINGS & CONTROLS",false))settingsOpen=true;
+   if(HotelMainMenu.MenuSceneAvailable){float hw=(bw-14)/2;if(MenuButton(new Rect(bx,r.y+417,hw,48),"SETTINGS",false))settingsOpen=true;if(MenuButton(new Rect(bx+hw+14,r.y+417,hw,48),"MAIN MENU",false))HotelMainMenu.ReturnToMenu();}
+   else if(MenuButton(new Rect(bx,r.y+417,bw,48),"SETTINGS & CONTROLS",false))settingsOpen=true;
    GUI.Label(new Rect(r.x+25,r.y+502,r.width-50,28),"ENTER  Play  |  O  Settings  |  ESC  Back",uiSmall);
   }
   void DrawEmployeeMenu(Rect safe){
-   Rule(safe,new Color(.05f,.15f,.20f,.63f));
+   Rule(safe,new Color(.05f,.15f,.20f,MenuDim(.63f)));
    float width=Mathf.Min(750,safe.width-36),height=710;var r=new Rect(safe.center.x-width/2,safe.center.y-height/2,width,height);
    Bubble(r,uiCream,uiCreamBottom,28,7);
    Bubble(new Rect(r.x+20,r.y+18,width-40,77),uiBlue,uiBlueBottom,20,4);
@@ -543,7 +544,8 @@ public bool RequestPickup(HotelItem item){
    float bw=(width-74)/2;
    if(MenuButton(new Rect(r.x+26,r.y+525,bw,61),hasPlayed?"RESUME":"LET'S PLAY",true))CaptureMouse();
    if(MenuButton(new Rect(r.x+48+bw,r.y+525,bw,61),"START OVER",false)){ResetWorld();CaptureMouse();}
-   if(MenuButton(new Rect(r.x+26,r.y+606,width-52,42),"SETTINGS & CONTROLS",false))settingsOpen=true;
+   if(HotelMainMenu.MenuSceneAvailable){float hw=(width-68)/2;if(MenuButton(new Rect(r.x+26,r.y+606,hw,42),"SETTINGS",false))settingsOpen=true;if(MenuButton(new Rect(r.x+42+hw,r.y+606,hw,42),"MAIN MENU",false))HotelMainMenu.ReturnToMenu();}
+   else if(MenuButton(new Rect(r.x+26,r.y+606,width-52,42),"SETTINGS & CONTROLS",false))settingsOpen=true;
    GUI.Label(new Rect(r.x+20,r.y+672,width-40,25),"LEFT / RIGHT  Choose  |  ENTER  Play  |  O  Settings",uiSmall);
    if(Time.unscaledTime<messageUntil)GUI.Label(new Rect(r.x+20,r.yMax+16,width-40,35),message,uiToast);
   }
@@ -552,14 +554,15 @@ public bool RequestPickup(HotelItem item){
    Color top=primary?uiBlue:uiOrange,bottom=primary?uiBlueBottom:uiOrangeBottom;if(hover)top=Color.Lerp(top,Color.white,.22f);
    Bubble(draw,top,bottom,18,press?2:6);Text(draw,label,primary?uiButton:uiSecondary,uiBrown,1.7f);
    // Stable IDs and dedicated contents prevent stale label/key geometry as the target changes.
-   return GUI.Button(r,GUIContent.none,GUIStyle.none);
+   bool clicked=GUI.Button(r,GUIContent.none,GUIStyle.none);if(clicked)HotelAudio.Play(primary?"ui_click":"ui_back",.9f);return clicked;
   }
   void OnGUI(){if(Economy&&Economy.ModalOpen)return;
    PrepareInterface();var matrix=GUI.matrix;var color=GUI.color;var content=GUI.contentColor;
    float scale=Mathf.Clamp(Mathf.Min(Screen.width/1440f,Screen.height/900f),.1f,2f);
    GUI.matrix=Matrix4x4.TRS(Vector3.zero,Quaternion.identity,Vector3.one*scale);GUI.color=GUI.contentColor=Color.white;
    var a=Screen.safeArea;var safe=new Rect(a.x/scale,(Screen.height-a.yMax)/scale,a.width/scale,a.height/scale);
-   if(Cursor.lockState==CursorLockMode.Locked){DrawHud(safe);DrawMaintenanceHud(safe);DrawDefenseHud(safe);if(combat&&combat.IsDown)DrawDowned(safe);else DrawInteraction(safe);DrawNotice(safe);DrawGuestSpeech(safe);}else{uiOpacity=0;DrawMenu(safe);}
+   if(Cursor.lockState==CursorLockMode.Locked){if(Cinematic&&titleCinematic.Active)DrawCinematicOverlay(safe);else{DrawHud(safe);DrawMaintenanceHud(safe);DrawDefenseHud(safe);if(combat&&combat.IsDown)DrawDowned(safe);else DrawInteraction(safe);DrawNotice(safe);DrawGuestSpeech(safe);}DrawFrameRate(safe);}
+   else{uiOpacity=0;DrawCinematicOverlay(safe);if(TitleScreenActive)DrawTitle(safe);else using(new UiAlphaScope(MenuFade))DrawMenu(safe);}
    GUI.matrix=matrix;GUI.color=color;GUI.contentColor=content;
   }
   public void PlayStrikeGesture(){PlayGesture(HotelPlayerGesture.Strike,view.transform.position+view.transform.forward);}public void Incapacitate(){CancelMouseGrip();ReleaseGuest(false);Drop();EndCart();if(seated)Stand();gesture=HotelPlayerGesture.None;eyeBase=new Vector3(standingEyeBase.x,standingEyeBase.y*.55f,standingEyeBase.z);}public void Recover(){if(view){eyeBase=standingEyeBase;PlayGesture(HotelPlayerGesture.Recover,transform.position);}}

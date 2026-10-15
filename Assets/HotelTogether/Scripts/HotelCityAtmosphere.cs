@@ -42,7 +42,9 @@ namespace HotelTogether
         readonly Dictionary<Renderer,bool> hiddenTreeRenderers = new Dictionary<Renderer,bool>();
         readonly Dictionary<Camera,float> cameraDistances = new Dictionary<Camera,float>();
 
-        void OnEnable() { Apply(); }
+        // While a scene is still loading (e.g. the Editor restoring HotelLobby after Play mode) its roots are not
+        // readable yet; defer the build to the first Update instead of throwing.
+        void OnEnable() { if (gameObject.scene.isLoaded) Apply(); else refreshRequested=true; }
         void OnValidate() { refreshRequested=true; }
         void Update()
         {

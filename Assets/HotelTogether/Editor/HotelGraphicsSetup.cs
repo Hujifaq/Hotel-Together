@@ -34,7 +34,7 @@ namespace HotelTogether.Editor
    ConfigurePipeline();
    var quality=HotelGraphicsBootstrap.Ensure(scene);if(!quality)return;
    quality.polishedTiles=tiles;quality.qualityProfile=profile;quality.Apply();EditorUtility.SetDirty(quality);
-   var camera=Camera.main;if(camera){camera.allowHDR=true;camera.allowMSAA=true;var data=camera.GetUniversalAdditionalCameraData();data.renderPostProcessing=true;data.antialiasing=AntialiasingMode.SubpixelMorphologicalAntiAliasing;data.antialiasingQuality=AntialiasingQuality.High;EditorUtility.SetDirty(data);}
+   var camera=Camera.main;if(camera){camera.allowHDR=true;camera.allowMSAA=true;var data=camera.GetUniversalAdditionalCameraData();data.renderPostProcessing=true;data.antialiasing=AntialiasingMode.SubpixelMorphologicalAntiAliasing;data.antialiasingQuality=AntialiasingQuality.High;/* runtime tiers override this */EditorUtility.SetDirty(data);}
    foreach(var probe in Object.FindObjectsByType<ReflectionProbe>())
    {
     if(probe.gameObject.scene!=scene)continue;
@@ -45,10 +45,11 @@ namespace HotelTogether.Editor
   }
   public static void ConfigureProfile(VolumeProfile profile,bool save)
   {
-   var tone=Ensure<Tonemapping>(profile,save);tone.mode.Override(TonemappingMode.ACES);
-   var bloom=Ensure<Bloom>(profile,save);bloom.intensity.Override(.16f);bloom.threshold.Override(1.15f);bloom.scatter.Override(.55f);bloom.highQualityFiltering.Override(true);
-   var color=Ensure<ColorAdjustments>(profile,save);color.postExposure.Override(.25f);color.contrast.Override(4);color.saturation.Override(8);
-   Ensure<WhiteBalance>(profile,save).temperature.Override(2);
+   // Matches HotelVisualDirector's daytime grade so the Scene view previews the in-game look.
+   var tone=Ensure<Tonemapping>(profile,save);tone.mode.Override(TonemappingMode.Neutral);
+   var bloom=Ensure<Bloom>(profile,save);bloom.intensity.Override(.42f);bloom.threshold.Override(.95f);bloom.scatter.Override(.66f);bloom.highQualityFiltering.Override(true);
+   var color=Ensure<ColorAdjustments>(profile,save);color.postExposure.Override(.32f);color.contrast.Override(14);color.saturation.Override(22);
+   Ensure<WhiteBalance>(profile,save).temperature.Override(5);
    if(save)foreach(var component in profile.components){EditorUtility.SetDirty(component);AssetDatabase.SaveAssetIfDirty(component);}
   }
   static T Ensure<T>(VolumeProfile profile,bool save)where T:VolumeComponent
@@ -59,7 +60,10 @@ namespace HotelTogether.Editor
   static void ConfigurePipeline()
   {
    var pipeline=AssetDatabase.LoadAssetAtPath<UniversalRenderPipelineAsset>("Assets/Settings/PC_RPAsset.asset");if(!pipeline)return;
-   pipeline.supportsHDR=true;pipeline.msaaSampleCount=4;pipeline.renderScale=1;pipeline.mainLightShadowmapResolution=4096;pipeline.shadowDistance=65;pipeline.shadowCascadeCount=4;
+   // "High" tier defaults. HotelPerformanceDirector adjusts these per quality tier at runtime and restores them.
+   // FSR is stored on the asset so builds keep its shader variants for adaptive resolution.
+   pipeline.supportsHDR=true;pipeline.msaaSampleCount=2;pipeline.renderScale=1;pipeline.mainLightShadowmapResolution=2048;pipeline.shadowDistance=45;pipeline.shadowCascadeCount=4;
+   pipeline.upscalingFilter=UpscalingFilterSelection.FSR;pipeline.fsrOverrideSharpness=true;pipeline.fsrSharpness=.86f;
    var settings=new SerializedObject(pipeline);foreach(var key in new[]{"m_SoftShadowsSupported","m_AdditionalLightShadowsSupported","m_ReflectionProbeBlending","m_ReflectionProbeBoxProjection"}){var property=settings.FindProperty(key);if(property!=null)property.boolValue=true;}var soft=settings.FindProperty("m_SoftShadowQuality");if(soft!=null)soft.intValue=3;settings.ApplyModifiedPropertiesWithoutUndo();EditorUtility.SetDirty(pipeline);AssetDatabase.SaveAssetIfDirty(pipeline);
    var renderer=AssetDatabase.LoadAssetAtPath<UniversalRendererData>("Assets/Settings/PC_Renderer.asset");if(!renderer)return;
    foreach(var feature in renderer.rendererFeatures)
@@ -67,6 +71,9 @@ namespace HotelTogether.Editor
     if(!feature || feature.GetType().Name!="ScreenSpaceAmbientOcclusion")continue;
     var serialized=new SerializedObject(feature);var downsample=serialized.FindProperty("m_Settings.Downsample");if(downsample!=null)downsample.boolValue=false;
     var blur=serialized.FindProperty("m_Settings.BlurQuality");if(blur!=null)blur.intValue=0;
+    // Slightly wider, softer contact shading gives the clay-like toy look.
+    var intensity=serialized.FindProperty("m_Settings.Intensity");if(intensity!=null)intensity.floatValue=.75f;
+    var radius=serialized.FindProperty("m_Settings.Radius");if(radius!=null)radius.floatValue=.22f;
     serialized.ApplyModifiedPropertiesWithoutUndo();EditorUtility.SetDirty(feature);AssetDatabase.SaveAssetIfDirty(feature);
    }
   }
