@@ -25,14 +25,14 @@ Shader "Hotel Together/Toon"
         [Header(Cel Shading)]
         _CelShadeMidPoint("Mid Point", Range(-1,1)) = -0.05
         _CelShadeSoftness("Softness", Range(0,1)) = 0.06
-        _DirectLightMultiplier("Sun Brightness", Range(0,2)) = 0.95
+        _DirectLightMultiplier("Sun Brightness", Range(0,2)) = 0.85
         _ReceiveShadowStrength("Receive Shadows", Range(0,1)) = 0.9
         _ShadowColor("Shadow Tint", Color) = (0.86,0.84,0.97,1)
 
         [Header(Lamps)]
-        _AdditionalLightMultiplier("Lamp Brightness", Range(0,2)) = 0.9
-        _AdditionalLightSoftness("Lamp Softness", Range(0,1)) = 0.3
-        _LightBands("Lamp Falloff Bands (0 = smooth)", Range(0,6)) = 3
+        _AdditionalLightMultiplier("Lamp Brightness", Range(0,2)) = 0.7
+        _AdditionalLightSoftness("Lamp Softness", Range(0,1)) = 0.75
+        _LightBands("Lamp Falloff Bands (0 = smooth)", Range(0,6)) = 0
 
         [Header(Ambient)]
         _IndirectLightMultiplier("Ambient", Range(0,2)) = 1

@@ -53,7 +53,8 @@ half3 ShadeMainLight(ToonSurfaceData s, InputData inputData, Light light, out ha
     return radiance * _DirectLightMultiplier;
 }
 
-// Lamps (point / spot lights): softer cel band and stepped falloff so pools of light read as cartoon shapes.
+// Lamps (point / spot lights): wrapped, wide cel band and a compressed falloff so pools of light
+// blend into the room instead of showing a hot centre with a hard rim.
 half3 ShadeAdditionalLight(ToonSurfaceData s, InputData inputData, Light light, inout half3 specular)
 {
     half3 N = inputData.normalWS;
@@ -61,9 +62,10 @@ half3 ShadeAdditionalLight(ToonSurfaceData s, InputData inputData, Light light, 
     half band = smoothstep(_CelShadeMidPoint - _AdditionalLightSoftness, _CelShadeMidPoint + _AdditionalLightSoftness, NoL);
     band = _IsFace > 0.5 ? lerp(0.6, 1, band) : band;
 
-    half attenuation = min(light.distanceAttenuation, 3.0);
-    if (_LightBands > 0.5 && attenuation < 1)
-        attenuation = SoftQuantize(attenuation, _LightBands);
+    // 1 - e^-2x: flattens the inverse-square hotspot and lifts the tail, so the pool fades out gradually.
+    half attenuation = (1 - exp(-2.0 * light.distanceAttenuation)) * 1.15;
+    if (_LightBands > 0.5)
+        attenuation = SoftQuantize(saturate(attenuation), _LightBands);
 
     half shadow = lerp(1, light.shadowAttenuation, _ReceiveShadowStrength);
     half3 radiance = light.color * (attenuation * band * shadow);

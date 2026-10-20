@@ -17,6 +17,7 @@ namespace HotelTogether
         public Vector3 receptionPoint=new Vector3(-5.65f,.025f,-3.6f);
         public int maxGuests=6;
         public float daySeconds=180,nightSeconds=180,arrivalInterval=26;
+        [Tooltip("Seconds the sky takes to fade between day and night (and back at dawn).")] public float DuskSeconds=45;
         public float checkInPatience=120;
         public Light sun;
         public HotelPlayer player;
@@ -148,9 +149,9 @@ namespace HotelTogether
         void UpdateLighting()
         {
             // Dusk starts before the zombie wave; dawn reverses when the next day begins.
-            float transition=DayNumber>1&&elapsed<18
-                ? 1-Mathf.SmoothStep(0,1,Mathf.Clamp01(elapsed/18))
-                : Mathf.SmoothStep(0,1,Mathf.Clamp01((elapsed-(daySeconds-25))/35));
+            float transition=DayNumber>1&&elapsed<DuskSeconds
+                ? 1-Mathf.SmoothStep(0,1,Mathf.Clamp01(elapsed/DuskSeconds))
+                : Mathf.SmoothStep(0,1,Mathf.Clamp01((elapsed-(daySeconds-35))/DuskSeconds));
             NightBlend=transition;
             if(sun){sun.intensity=Mathf.Lerp(sunIntensity,.18f,transition);sun.color=Color.Lerp(sunColor,new Color(.40f,.52f,.82f),transition);sun.transform.rotation=Quaternion.Slerp(sunRotation,Quaternion.Euler(35,-40,0),transition);}
             RenderSettings.ambientIntensity=Mathf.Lerp(ambientIntensity,.35f,transition);RenderSettings.ambientLight=Color.Lerp(ambientColor,new Color(.12f,.17f,.28f),transition);
