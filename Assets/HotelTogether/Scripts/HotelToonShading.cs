@@ -37,7 +37,8 @@ namespace HotelTogether
 
         [Header("Look")]
         public Color shadowTint = new Color(.86f, .84f, .97f);
-        [Range(0, 6)] public float lampBands = 3;
+        [Range(0, 6)] public float lampBands = 0; // 0 = smooth lamp falloff, no visible rings
+        [Range(0, 1)] public float lampSoftness = .75f;
         [Range(-1, 1)] public float celMidPoint = -.05f;
         [Range(0, 1)] public float celSoftness = .06f;
 
@@ -349,6 +350,7 @@ namespace HotelTogether
             float metallic = toon.GetFloat("_Metallic"), smoothness = toon.GetFloat("_Smoothness");
             toon.SetColor("_ShadowColor", shadowTint);
             toon.SetFloat("_LightBands", lampBands);
+            toon.SetFloat("_AdditionalLightSoftness", lampSoftness);
             toon.SetFloat("_CelShadeMidPoint", celMidPoint);
             toon.SetFloat("_CelShadeSoftness", celSoftness);
             // Polished metal and ceramics get a crisp glint and stronger reflections; matte fabric gets none.

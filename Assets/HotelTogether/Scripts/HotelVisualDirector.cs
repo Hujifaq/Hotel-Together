@@ -80,13 +80,13 @@ namespace HotelTogether
             dayProfile = NewProfile("Hotel daytime grade");
             dayProfile.Add<Tonemapping>(true).mode.value = TonemappingMode.Neutral;
             var color = dayProfile.Add<ColorAdjustments>(true);
-            color.postExposure.value = .32f; color.contrast.value = 14; color.saturation.value = 22; color.colorFilter.value = new Color(1, .99f, .965f);
+            color.postExposure.value = .05f; color.contrast.value = 14; color.saturation.value = 22; color.colorFilter.value = new Color(1, .99f, .965f);
             var white = dayProfile.Add<WhiteBalance>(true); white.temperature.value = 5; white.tint.value = 1;
             var smh = dayProfile.Add<ShadowsMidtonesHighlights>(true);
             smh.shadows.value = new Vector4(.95f, .99f, 1.10f, 0); smh.midtones.value = new Vector4(1.01f, 1, .99f, 0); smh.highlights.value = new Vector4(1.04f, 1.02f, .96f, 0);
             var lgg = dayProfile.Add<LiftGammaGain>(true); lgg.lift.value = new Vector4(1, 1, 1.02f, .015f); lgg.gain.value = new Vector4(1, 1, 1, .02f);
             dayBloom = dayProfile.Add<Bloom>(true);
-            dayBloom.intensity.value = .42f; dayBloom.threshold.value = .95f; dayBloom.scatter.value = .66f; dayBloom.tint.value = new Color(1, .96f, .9f);
+            dayBloom.intensity.value = .3f; dayBloom.threshold.value = .95f; dayBloom.scatter.value = .66f; dayBloom.tint.value = new Color(1, .96f, .9f);
             var vignette = dayProfile.Add<Vignette>(true); vignette.intensity.value = .2f; vignette.smoothness.value = .48f; vignette.color.value = new Color(.13f, .08f, .12f);
             dayProfile.Add<ChromaticAberration>(true).intensity.value = 0;
             dayProfile.Add<FilmGrain>(true).intensity.value = 0;
@@ -94,7 +94,7 @@ namespace HotelTogether
             // ---- Night: violet-blue shadows, neon bloom, a hint of lens character.
             nightProfile = NewProfile("Hotel Zombie Inn night grade");
             var nColor = nightProfile.Add<ColorAdjustments>(true);
-            nColor.postExposure.value = .22f; nColor.contrast.value = 20; nColor.saturation.value = 30; nColor.colorFilter.value = new Color(.84f, .9f, 1.12f);
+            nColor.postExposure.value = .02f; nColor.contrast.value = 20; nColor.saturation.value = 30; nColor.colorFilter.value = new Color(.84f, .9f, 1.12f);
             var nWhite = nightProfile.Add<WhiteBalance>(true); nWhite.temperature.value = -20; nWhite.tint.value = 9;
             var nSmh = nightProfile.Add<ShadowsMidtonesHighlights>(true);
             nSmh.shadows.value = new Vector4(.88f, .94f, 1.30f, -.02f); nSmh.midtones.value = new Vector4(.97f, 1, 1.07f, 0); nSmh.highlights.value = new Vector4(1.06f, 1, 1.10f, .03f);

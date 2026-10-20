@@ -286,9 +286,54 @@ namespace HotelTogether
                 else if (head == "HOTEL MAP") root = BuildDirectory(label, lines, em);
                 else foreach (var h in InfoHeaders) if (head.StartsWith(h)) { root = BuildInfoSign(label, lines, em); break; }
                 if (!root) continue;
+                if (lines.Count == 1 && (m = GuestDoor.Match(lines[0])).Success) ReplaceBrassPlaque(root, m.Groups[1].Value);
                 handled.Add(label);
-                label.gameObject.SetActive(false); hidden.Add(label.gameObject);
+                if (label.gameObject.activeSelf) { label.gameObject.SetActive(false); hidden.Add(label.gameObject); }
             }
+        }
+
+        // Guest rooms already have a small brass number plaque beside the door. The crafted plaque
+        // takes its place at its size, instead of hanging as a second, oversized sign above the door.
+        static readonly Regex BrassPlaqueName = new(@"^Room (\d{3}) brass plaque$");
+        Dictionary<string, Transform> brassPlaques;
+
+        void ReplaceBrassPlaque(Transform root, string number)
+        {
+            if (brassPlaques == null)
+            {
+                brassPlaques = new Dictionary<string, Transform>();
+                foreach (var t in FindObjectsByType<Transform>(FindObjectsSortMode.None))
+                {
+                    Match m;
+                    if (t.gameObject.scene == gameObject.scene && (m = BrassPlaqueName.Match(t.name)).Success) brassPlaques[m.Groups[1].Value] = t;
+                }
+            }
+            if (!brassPlaques.TryGetValue(number, out var plaque) || !plaque || !plaque.gameObject.activeInHierarchy || !RendererBounds(plaque, out var target) || !RendererBounds(root, out var current)) return;
+
+            Vector3 right = root.right, up = root.up, into = root.forward; // the plaque face looks along -forward, the wall is behind it
+            float scale = Mathf.Min(Extent(target, right) / Mathf.Max(.0001f, Extent(current, right)), Extent(target, up) / Mathf.Max(.0001f, Extent(current, up)));
+            root.localScale *= scale;
+            RendererBounds(root, out current);
+            var delta = target.center - current.center;
+            delta -= into * Vector3.Dot(delta, into);
+            // Keep the back flush with the old plaque's back so it sits on the same wall.
+            float depth = Vector3.Dot(target.center, into) + Extent(target, into) / 2 - (Vector3.Dot(current.center, into) + Extent(current, into) / 2);
+            root.position += delta + into * depth;
+
+            plaque.gameObject.SetActive(false); hidden.Add(plaque.gameObject);
+        }
+
+        static float Extent(Bounds b, Vector3 axis) => Mathf.Abs(b.size.x * axis.x) + Mathf.Abs(b.size.y * axis.y) + Mathf.Abs(b.size.z * axis.z);
+
+        static bool RendererBounds(Transform t, out Bounds bounds)
+        {
+            bounds = default; bool any = false;
+            foreach (var r in t.GetComponentsInChildren<Renderer>())
+            {
+                if (!r.enabled) continue;
+                if (any) bounds.Encapsulate(r.bounds); else { bounds = r.bounds; any = true; }
+            }
+            return any;
         }
 
         Transform RootAt(TextMesh label, string name)

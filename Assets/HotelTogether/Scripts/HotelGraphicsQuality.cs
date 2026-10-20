@@ -22,6 +22,9 @@ namespace HotelTogether
   bool rendering;
   readonly Dictionary<Renderer,Material[]> originals=new Dictionary<Renderer,Material[]>();
   readonly List<Renderer> floorRenderers=new List<Renderer>();
+  // The local player's own body sits right under the camera; mirrored and blurred it smears across the floor.
+  readonly List<Renderer> hiddenFromReflection=new List<Renderer>();
+  HotelPlayer localPlayer;
   static readonly int ReflectionId=Shader.PropertyToID("_HotelFloorReflection"), MatrixId=Shader.PropertyToID("_HotelReflectionVP"),ReadyId=Shader.PropertyToID("_HotelReflectionReady");
   void OnEnable(){Apply();RenderPipelineManager.beginCameraRendering+=Reflect;}
   void Update(){if(!polishedTiles || !volumeObject)Apply();}
@@ -77,6 +80,10 @@ namespace HotelTogether
    reflectionCamera.projectionMatrix=reflectionCamera.CalculateObliqueMatrix(clipPlane);
    reflectionCamera.cullingMask=source.cullingMask & ~((1<<8)|(1<<9));
    bool oldCulling=GL.invertCulling;rendering=true;
+   if(!localPlayer)localPlayer=FindAnyObjectByType<HotelPlayer>();
+   hiddenFromReflection.Clear();
+   if(localPlayer)localPlayer.GetComponentsInChildren(false,hiddenFromReflection);
+   for(int i=hiddenFromReflection.Count-1;i>=0;i--){if(hiddenFromReflection[i].forceRenderingOff)hiddenFromReflection.RemoveAt(i);else hiddenFromReflection[i].forceRenderingOff=true;}
    try
    {
     GL.invertCulling=!oldCulling;
@@ -86,7 +93,7 @@ namespace HotelTogether
     reflection.GenerateMips();lastReflectionFrame=Time.frameCount;
     Shader.SetGlobalTexture(ReflectionId,reflection);Shader.SetGlobalMatrix(MatrixId,GL.GetGPUProjectionMatrix(reflectionCamera.projectionMatrix,true)*reflectionCamera.worldToCameraMatrix);Shader.SetGlobalFloat(ReadyId,1);
    }
-   finally{GL.invertCulling=oldCulling;rendering=false;}
+   finally{GL.invertCulling=oldCulling;rendering=false;foreach(var r in hiddenFromReflection)if(r)r.forceRenderingOff=false;hiddenFromReflection.Clear();}
   }
   public void SuspendForSceneSave()
   {
